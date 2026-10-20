@@ -19,7 +19,7 @@ def init_map_gen(level_num):
         GenerationError: Номер уровня или размеры карты недопустимы.
     """
     if (type(level_num) is not int
-            or not 0 <= level_num < len(constants.LEVEL_SIZES)):
+            or not 0 <= level_num < constants.MAX_LEVEL):
         raise GenerationError("Недопустимый номер уровня.")
     height, width = constants.LEVEL_SIZES[level_num]
     if (type(height) is not int or type(width) is not int
