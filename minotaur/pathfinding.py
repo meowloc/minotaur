@@ -13,7 +13,7 @@ def validate_input(maze: Maze, cell: Cell) -> None:
         cell: Координата клетки, которую нужно проверить.
 
     Raises:
-        LevelError: Если лабиринт пустой, меньше 3×3, содержит строки
+        LevelError: Если лабиринт пустой, меньше 5×5, содержит строки
             разной длины или посторонние символы, если по координатам
             расположена стена, а также если cell не является Cell или
             лежит на рамке или за пределами лабиринта.
@@ -144,5 +144,8 @@ def get_shortest_path(
 
     if goal not in paths:
         raise LevelError(f"{goal} is unreachable from {start}!")
+
+    if length is not None and length < 1:
+        raise LevelError("Length must be positive!")
 
     return paths[goal][:length]
