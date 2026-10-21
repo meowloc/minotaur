@@ -5,6 +5,7 @@ import random
 import pytest
 
 from minotaur import constants
+from minotaur.custom_types import Cell
 from minotaur.exceptions import GenerationError, PlaceError
 from minotaur.generator import init_map_gen, making_labyrinth
 from minotaur.levels import place_exit_and_player
@@ -49,7 +50,8 @@ def test_place_exit_and_player():
 
     positions = place_exit_and_player(maze, random.Random(0))
 
-    assert positions == ((1, 5), (5, 3))
+    assert all(isinstance(cell, Cell) for cell in positions)
+    assert positions == (Cell(1, 5), Cell(5, 3))
     assert maze == expected
 
 
