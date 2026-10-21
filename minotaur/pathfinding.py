@@ -23,8 +23,8 @@ def validate_input(maze: Maze, cell: Cell) -> None:
 
     height, width = len(maze), len(maze[0])
 
-    if height <= 2 or width <= 2:
-        raise LevelError("Maze has incorrect size. There are no cells!")
+    if height < 5 or width < 5:
+        raise LevelError("Maze has incorrect size!")
 
     for row in maze:
         for item in row:
@@ -106,22 +106,28 @@ def get_bfs_distances(maze: Maze, start: Cell) -> dict[Cell, int]:
     return distances
 
 
-def get_shortest_path(maze: Maze, start: Cell, goal: Cell) -> list[Cell]:
+def get_shortest_path(
+        maze: Maze, start: Cell, goal: Cell, length: int | None = None
+) -> list[Cell]:
     """Находит кратчайший путь от стартовой клетки до заданной.
 
     Args:
         maze: Двумерная сетка тайлов, индексируется как ``maze[row][col]``.
         start: Клетка, из которой начинается путь.
         goal: Клетка, в которую нужно прийти.
+        length: Сколько первых клеток пути вернуть. Если не указано,
+            возвращается весь путь.
 
     Returns:
-        Список клеток кратчайшего пути по порядку, от ``start`` до
-        ``goal`` включительно. Если ``start`` и ``goal`` совпадают,
-        список состоит из одной клетки.
+        Список клеток кратчайшего пути по порядку, начиная со ``start``.
+        Без ``length`` путь идёт до ``goal`` включительно, с ``length``
+        обрезается до первых ``length`` клеток. Если ``start`` и ``goal``
+        совпадают, список состоит из одной клетки.
 
     Raises:
         LevelError: Если лабиринт, ``start`` или ``goal`` не прошли
-            проверку ``validate_input``.
+            проверку ``validate_input`` или ``goal`` недостижима
+            из ``start``.
     """
     validate_input(maze, start)
     validate_input(maze, goal)
@@ -136,28 +142,7 @@ def get_shortest_path(maze: Maze, start: Cell, goal: Cell) -> list[Cell]:
                 paths[next_cell] = path
                 queue.append(next_cell)
 
-    return paths[goal]
+    if goal not in paths:
+        raise LevelError(f"{goal} is unreachable from {start}!")
 
-
-def get_compass_path(
-        maze: Maze, start: Cell, goal: Cell, length: int
-) -> list[Cell]:
-    """Возвращает начало кратчайшего пути для подсказки компаса.
-
-    Args:
-        maze: Двумерная сетка тайлов, индексируется как ``maze[row][col]``.
-        start: Клетка, из которой начинается путь.
-        goal: Клетка, в которую нужно прийти.
-        length: Сколько первых клеток пути вернуть.
-
-    Returns:
-        Первые ``length`` клеток кратчайшего пути от ``start`` до
-        ``goal``.
-
-    Raises:
-        LevelError: Если лабиринт или клетки не прошли проверку
-            (пробрасывается из ``get_shortest_path``).
-    """
-    path = get_shortest_path(maze, start, goal)[:length]
-
-    return path
+    return paths[goal][:length]
