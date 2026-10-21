@@ -3,6 +3,7 @@
 import random
 
 from minotaur import constants
+from minotaur.custom_types import Cell
 from minotaur.exceptions import PlaceError
 
 
@@ -14,7 +15,7 @@ def place_exit_and_player(map_matrix, rng=None):
         rng: Генератор random.Random для воспроизводимости.
 
     Returns:
-        Пара координат (игрок, выход). До прокладки коридоров используется
+        Пара Cell (игрок, выход). До прокладки коридоров используется
         манхэттенское расстояние между потенциальными клетками прохода.
         Оба объекта стоят на нечётных координатах в клетке от внешней стены.
         При одинаковом расстоянии клетка выбирается случайно.
@@ -46,20 +47,20 @@ def place_exit_and_player(map_matrix, rng=None):
         for col in range(1, width - 1, 2):
             if (row == 1 or row == height - 2
                     or col == 1 or col == width - 2):
-                cells.append((row, col))
+                cells.append(Cell(row, col))
 
     exit_pos = rng.choice(cells)
     exit_row, exit_col = exit_pos
 
     max_distance = -1
     farthest_cells = []
-    for row, col in cells:
-        distance = abs(row - exit_row) + abs(col - exit_col)
+    for cell in cells:
+        distance = abs(cell.row - exit_row) + abs(cell.col - exit_col)
         if distance > max_distance:
             max_distance = distance
-            farthest_cells = [(row, col)]
+            farthest_cells = [cell]
         elif distance == max_distance:
-            farthest_cells.append((row, col))
+            farthest_cells.append(cell)
 
     player = rng.choice(farthest_cells)
     player_row, player_col = player

@@ -3,6 +3,7 @@
 import random
 
 from minotaur import constants
+from minotaur.custom_types import Cell
 from minotaur.exceptions import GenerationError
 
 
@@ -56,9 +57,9 @@ def making_labyrinth(map_matrix, rng=None):
     for row in range(height):
         for col in range(len(map_matrix[row])):
             if map_matrix[row][col] == constants.PLAYER:
-                start = (row, col)
+                start = Cell(row, col)
             elif map_matrix[row][col] == constants.EXIT:
-                exit_pos = (row, col)
+                exit_pos = Cell(row, col)
 
     if start is None or exit_pos is None:
         raise GenerationError("На карте должны быть игрок и выход.")
@@ -66,7 +67,8 @@ def making_labyrinth(map_matrix, rng=None):
     width = len(map_matrix[0])
     stack = [start]
     visited = [start]
-    directions = [(-2, 0), (2, 0), (0, -2), (0, 2)]
+    directions = [(dr * 2, dc * 2)
+                  for dr, dc in constants.DIRECTIONS.values()]
 
     while len(stack) > 0:
         if stack[-1] == exit_pos:
@@ -81,24 +83,26 @@ def making_labyrinth(map_matrix, rng=None):
                 continue
             if next_col <= 0 or next_col >= width - 1:
                 continue
-            if (next_row, next_col) in visited:
+            next_cell = Cell(next_row, next_col)
+            if next_cell in visited:
                 continue
-            candidates.append((next_row, next_col))
+            candidates.append(next_cell)
 
         if len(candidates) == 0:
             stack.pop()
             continue
 
-        next_row, next_col = rng.choice(candidates)
+        next_cell = rng.choice(candidates)
+        next_row, next_col = next_cell
 
         # Убираем стену посередине между двумя клетками.
         wall_row = (row + next_row) // 2
         wall_col = (col + next_col) // 2
         map_matrix[wall_row][wall_col] = constants.FILE_AIR
-        if (next_row, next_col) != exit_pos:
+        if next_cell != exit_pos:
             map_matrix[next_row][next_col] = constants.FILE_AIR
 
-        visited.append((next_row, next_col))
-        stack.append((next_row, next_col))
+        visited.append(next_cell)
+        stack.append(next_cell)
 
     raise GenerationError("Не удалось проложить путь до выхода.")
