@@ -17,9 +17,11 @@ mock_maze_5_rows_5_cols = [
     list("#####"),
 ]
 
-mock_maze_two_areas = [
+mock_maze_2_areas = [
     list("#####"),
     list("#.#.#"),
+    list("#####"),
+    list("#####"),
     list("#####"),
 ]
 
@@ -45,7 +47,7 @@ def test_validate_no_maze_and_cell():
 def test_validate_incorrect_sized_maze():
     """Лабиринт меньше 3×3 вызывает ошибку."""
     with pytest.raises(LevelError,
-                       match="Maze has incorrect size. There are no cells!"):
+                       match="Maze has incorrect size!"):
         pathfinding.validate_input(mock_maze_2_rows_2_cols, Cell(1, 1))
 
 
@@ -53,9 +55,11 @@ def test_validate_maze_contains_incorrect_symbol():
     """Посторонний символ в лабиринте вызывает ошибку."""
     with pytest.raises(LevelError, match="Maze has incorrect symbol @!"):
         pathfinding.validate_input([
-            list("#@#"),
-            list("#.#"),
-            list("###"),
+            list("#@###"),
+            list("#.###"),
+            list("#####"),
+            list("#####"),
+            list("#####"),
         ], Cell(1, 1))
 
 
@@ -63,12 +67,14 @@ def test_validate_incorrect_maze():
     """Строки разной длины вызывают ошибку."""
     with pytest.raises(
             LevelError,
-            match="Maze has incorrect length! Found: 5. Was expecting: 3"
+            match="Maze has incorrect length! Found: 3. Was expecting: 5"
     ):
         pathfinding.validate_input([
-            list("###"),
             list("#####"),
             list("###"),
+            list("#"),
+            list("###"),
+            list("#####"),
         ], Cell(1, 1))
 
 
@@ -103,7 +109,7 @@ def test_get_neighbors_in_dead_end():
 
 def test_get_neighbors_isolated_cell():
     """У клетки, окружённой стенами, соседей нет."""
-    result = pathfinding.get_neighbors(mock_maze_two_areas, Cell(1, 1))
+    result = pathfinding.get_neighbors(mock_maze_2_areas, Cell(1, 1))
     assert result == []
 
 
@@ -128,7 +134,7 @@ def test_get_bfs_distances():
 
 def test_get_bfs_distances_unreachable():
     """Недостижимая клетка не попадает в результат."""
-    result = pathfinding.get_bfs_distances(mock_maze_two_areas, Cell(1, 1))
+    result = pathfinding.get_bfs_distances(mock_maze_2_areas, Cell(1, 1))
     assert result == {Cell(1, 1): 0}
     assert Cell(1, 3) not in result
 
@@ -161,22 +167,32 @@ def test_get_shortest_path_goal_is_wall():
                                       Cell(1, 2), Cell(1, 1))
 
 
-def test_get_compass_path():
-    """Компас возвращает только первые клетки пути."""
-    result = pathfinding.get_compass_path(mock_maze_5_rows_5_cols,
-                                          Cell(1, 3), Cell(3, 1), 2)
+def test_get_shortest_path_with_length():
+    """Возвращает только первые клетки пути."""
+    result = pathfinding.get_shortest_path(
+        mock_maze_5_rows_5_cols, Cell(1, 3), Cell(3, 1), 2
+    )
     assert result == [Cell(1, 3), Cell(1, 2)]
 
 
-def test_get_compass_path_longer_than_path():
-    """Если путь короче длины компаса, возвращается весь путь."""
-    result = pathfinding.get_compass_path(mock_maze_5_rows_5_cols,
-                                          Cell(1, 3), Cell(2, 2), 8)
+def test_get_shortest_path_length_longer_than_path():
+    """Если путь короче длины, возвращается весь путь."""
+    result = pathfinding.get_shortest_path(
+        mock_maze_5_rows_5_cols, Cell(1, 3), Cell(2, 2), 8
+    )
     assert result == [Cell(1, 3), Cell(1, 2), Cell(2, 2)]
 
 
-def test_get_compass_path_start_outside():
+def test_get_shortest_path_start_on_border():
     """Старт на рамке вызывает ошибку."""
     with pytest.raises(LevelError):
-        pathfinding.get_compass_path(mock_maze_5_rows_5_cols,
-                                     Cell(0, 0), Cell(3, 1), 8)
+        pathfinding.get_shortest_path(
+            mock_maze_5_rows_5_cols, Cell(0, 0), Cell(3, 1), 8
+        )
+
+
+def test_get_shortest_path_unreachable():
+    """Недостижимая цель вызывает ошибку."""
+    with pytest.raises(LevelError, match="is unreachable from"):
+        pathfinding.get_shortest_path(mock_maze_2_areas,
+                                      Cell(1, 1), Cell(1, 3))
