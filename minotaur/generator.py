@@ -4,7 +4,7 @@ import random
 
 from minotaur import constants
 from minotaur.custom_types import Cell
-from minotaur.exceptions import GenerationError
+from minotaur.exceptions import GenerationError, LevelError
 
 
 def init_map_gen(level_num):
@@ -106,3 +106,66 @@ def making_labyrinth(map_matrix, rng=None):
         stack.append(next_cell)
 
     raise GenerationError("Не удалось проложить путь до выхода.")
+
+
+def add_loops(map_matrix, count, rng=None):
+    """Открыть ровно count перегородок между существующими коридорами.
+
+    Args:
+        map_matrix: Связная карта после making_labyrinth.
+            Изменяется на месте; новые коридоры не достраиваются.
+        count: Сколько перегородок открыть между коридорами.
+        rng: Генератор random.Random для воспроизводимости.
+
+    Returns:
+        Та же карта с дополнительными путями. Старые проходы, игрок,
+        выход и внешние стены сохраняются. При count=0 карта не меняется.
+
+    Raises:
+        LevelError: Неверное число проходов, карта меньше 5x5,
+            строки разной длины или недостаточно подходящих стен.
+            При ошибке карта не изменяется.
+    """
+    if type(count) is not int or count < 0:
+        raise LevelError("Число дополнительных проходов недопустимо.")
+
+    height = len(map_matrix)
+    if height < 5 or len(map_matrix[0]) < 5:
+        raise LevelError("Размеры карты должны быть не меньше 5.")
+    width = len(map_matrix[0])
+    for row in map_matrix:
+        if len(row) != width:
+            raise LevelError("Строки карты должны быть одной длины.")
+
+    if count == 0:
+        return map_matrix
+    if rng is None:
+        rng = random.Random()
+
+    # У перегородки одна координата чётная, другая нечётная.
+    walls = []
+    for row in range(1, height - 1):
+        for col in range(1, width - 1):
+            if map_matrix[row][col] != constants.FILE_WALL:
+                continue
+            if row % 2 == 0 and col % 2 == 1:
+                first = map_matrix[row - 1][col]
+                second = map_matrix[row + 1][col]
+            elif row % 2 == 1 and col % 2 == 0:
+                first = map_matrix[row][col - 1]
+                second = map_matrix[row][col + 1]
+            else:
+                continue
+            if (first != constants.FILE_WALL
+                    and second != constants.FILE_WALL):
+                walls.append(Cell(row, col))
+
+    if count > len(walls):
+        raise LevelError("Недостаточно стен для дополнительных проходов.")
+
+    for _ in range(count):
+        wall = rng.choice(walls)
+        map_matrix[wall.row][wall.col] = constants.FILE_AIR
+        walls.remove(wall)
+
+    return map_matrix
