@@ -23,6 +23,12 @@ mock_corridor = [
 ]
 
 
+def test_monster_position():
+    """Монстр сохраняет переданную позицию"""
+    monster = Monster(Cell(1, 1))
+    assert monster.position == Cell(1, 1)
+
+
 def test_monster_step_not_implemented():
     """У базового монстра метод step не реализован."""
     with pytest.raises(NotImplementedError):
