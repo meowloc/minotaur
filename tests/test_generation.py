@@ -6,8 +6,8 @@ import pytest
 
 from minotaur import constants
 from minotaur.custom_types import Cell
-from minotaur.exceptions import GenerationError, PlaceError
-from minotaur.generator import init_map_gen, making_labyrinth
+from minotaur.exceptions import GenerationError, LevelError, PlaceError
+from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.levels import place_exit_and_player
 
 
@@ -99,3 +99,132 @@ def test_dfs_without_player_and_exit():
     ]
     with pytest.raises(GenerationError, match="должны быть игрок и выход"):
         making_labyrinth(maze)
+
+
+def test_add_loops():
+    """Одна перегородка превращается в проход; остальные клетки прежние."""
+    maze = [
+        list("#####"),
+        list("#P..#"),
+        list("###.#"),
+        list("#..E#"),
+        list("#####"),
+    ]
+    expected = [
+        list("#####"),
+        list("#P..#"),
+        list("#.#.#"),
+        list("#..E#"),
+        list("#####"),
+    ]
+    assert add_loops(maze, 1, random.Random(0)) is maze
+    assert maze == expected
+
+
+def test_add_loops_between_left_and_right():
+    """Открывается также перегородка между левым и правым коридором."""
+    maze = [
+        list("#####"),
+        list("#P#.#"),
+        list("#.#.#"),
+        list("#..E#"),
+        list("#####"),
+    ]
+    expected = []
+    for row in maze:
+        expected.append(row[:])
+    expected[1][2] = constants.FILE_AIR
+    assert add_loops(maze, 1, random.Random(0)) == expected
+
+
+def test_add_loops_zero():
+    """Ноль дополнительных проходов оставляет карту прежней."""
+    maze = init_map_gen(0)
+    before = []
+    for row in maze:
+        before.append(row[:])
+    assert add_loops(maze, 0) is maze
+    assert maze == before
+
+
+def test_add_loops_count_and_seed():
+    """Открываются ровно две разные стены; seed повторяет результат."""
+    results = []
+    for _ in range(2):
+        maze = [
+            list("#######"),
+            list("#P....#"),
+            list("#####.#"),
+            list("#.....#"),
+            list("#.#####"),
+            list("#....E#"),
+            list("#######"),
+        ]
+        before = []
+        for row in maze:
+            before.append(row[:])
+        add_loops(maze, 2, random.Random(10))
+        changed = 0
+        for row in range(len(maze)):
+            for col in range(len(maze[row])):
+                if maze[row][col] != before[row][col]:
+                    assert before[row][col] == constants.FILE_WALL
+                    assert maze[row][col] == constants.FILE_AIR
+                    assert 0 < row < len(maze) - 1
+                    assert 0 < col < len(maze[row]) - 1
+                    changed += 1
+        assert changed == 2
+        results.append(maze)
+    assert results[0] == results[1]
+
+
+def test_add_loops_not_enough_walls():
+    """Если нужна пара стен, а подходит одна, карта не меняется."""
+    maze = [
+        list("#####"),
+        list("#P..#"),
+        list("###.#"),
+        list("#..E#"),
+        list("#####"),
+    ]
+    before = []
+    for row in maze:
+        before.append(row[:])
+    with pytest.raises(LevelError, match="Недостаточно стен"):
+        add_loops(maze, 2)
+    assert maze == before
+
+
+def test_add_loops_does_not_extend_dfs():
+    """Первый путь без подходящих перегородок не достраивается."""
+    maze = [
+        list("#####"),
+        list("#P###"),
+        list("#####"),
+        list("###E#"),
+        list("#####"),
+    ]
+    making_labyrinth(maze, random.Random(0))
+    before = []
+    for row in maze:
+        before.append(row[:])
+    with pytest.raises(LevelError, match="Недостаточно стен"):
+        add_loops(maze, 1)
+    assert maze == before
+
+
+def test_add_loops_invalid_count():
+    """Некорректное число проходов вызывает ошибку."""
+    for count in [-1, 1.5, "2", True]:
+        with pytest.raises(LevelError, match="Число дополнительных"):
+            add_loops(init_map_gen(0), count)
+
+
+def test_add_loops_invalid_map():
+    """Пустая или неровная карта вызывает ошибку."""
+    with pytest.raises(LevelError, match="Размеры карты"):
+        add_loops([], 1)
+    maze = init_map_gen(0)
+    maze[1].pop()
+    with pytest.raises(LevelError, match="Строки карты"):
+        add_loops(maze, 1)
