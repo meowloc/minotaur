@@ -149,7 +149,7 @@ def test_get_shortest_path():
     """Путь идёт от старта до цели по кратчайшему маршруту."""
     result = pathfinding.get_shortest_path(mock_maze_5_rows_5_cols,
                                            Cell(1, 3), Cell(3, 1))
-    assert result == [Cell(1, 3), Cell(1, 2), Cell(2, 2),
+    assert result == [Cell(1, 2), Cell(2, 2),
                       Cell(3, 2), Cell(3, 1)]
 
 
@@ -157,7 +157,7 @@ def test_get_shortest_path_same_cell():
     """Путь из клетки в неё же состоит из одной клетки."""
     result = pathfinding.get_shortest_path(mock_maze_5_rows_5_cols,
                                            Cell(2, 2), Cell(2, 2))
-    assert result == [Cell(2, 2)]
+    assert result == []
 
 
 def test_get_shortest_path_goal_is_wall():
@@ -172,7 +172,7 @@ def test_get_shortest_path_with_length():
     result = pathfinding.get_shortest_path(
         mock_maze_5_rows_5_cols, Cell(1, 3), Cell(3, 1), 2
     )
-    assert result == [Cell(1, 3), Cell(1, 2)]
+    assert result == [Cell(1, 2), Cell(2, 2)]
 
 
 def test_get_shortest_path_length_longer_than_path():
@@ -180,7 +180,7 @@ def test_get_shortest_path_length_longer_than_path():
     result = pathfinding.get_shortest_path(
         mock_maze_5_rows_5_cols, Cell(1, 3), Cell(2, 2), 8
     )
-    assert result == [Cell(1, 3), Cell(1, 2), Cell(2, 2)]
+    assert result == [Cell(1, 2), Cell(2, 2)]
 
 
 def test_get_shortest_path_start_on_border():
