@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 Maze = list[list[str]]
@@ -13,3 +14,24 @@ class Cell(NamedTuple):
 
     row: int
     col: int
+
+
+@dataclass
+class Level:
+    """Уровень: карта и расположение объектов на ней.
+
+    Attributes:
+        maze: Карта из стен и проходов, без объектов.
+        player: Позиция игрока.
+        exit: Позиция выхода.
+        key: Позиция ключа, ``None``, если ключ уже подобран.
+        monsters: Монстры в виде пар из символа монстра и его позиции.
+        bonuses: Бонусы: позиция бонуса и его символ.
+    """
+
+    maze: Maze
+    player: Cell
+    exit: Cell
+    key: Cell | None
+    monsters: list[tuple[str, Cell]] = field(default_factory=list)
+    bonuses: dict[Cell, str] = field(default_factory=dict)
