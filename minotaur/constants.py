@@ -66,27 +66,27 @@ KEY_BINDINGS = {
 
 
 def _plural(n: int, word: str) -> str:
-    """Return a number with an English noun in the right form.
+    """Возвращает число с английским существительным в правильной форме.
 
     Args:
-        n: How many items there are.
-        word: The noun in singular form.
+        n: Количество предметов.
+        word: Существительное в единственном числе.
 
     Returns:
-        "1 turn" when n is 1, otherwise the plural form like "3 turns".
+        "1 turn", если n равно 1, иначе форму множественного числа, например "3 turns".
     """
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def _every(n: int, word: str = "turn") -> str:
-    """Return the period for a phrase starting with "every".
+    """Возвращает обозначение периода для фразы, начинающейся с "every".
 
     Args:
-        n: How many units the period lasts.
-        word: The unit in singular form.
+        n: Сколько единиц длится период.
+        word: Единица измерения в единственном числе.
 
     Returns:
-        "turn" when n is 1 (as in "every turn"), otherwise "2 turns".
+        "turn", если n равно 1 (как в "every turn"), иначе "2 turns".
     """
     return word if n == 1 else f"{n} {word}s"
 
