@@ -115,19 +115,20 @@ def get_shortest_path(
         maze: Двумерная сетка тайлов, индексируется как ``maze[row][col]``.
         start: Клетка, из которой начинается путь.
         goal: Клетка, в которую нужно прийти.
-        length: Сколько первых клеток пути вернуть. Если не указано,
+        length: Сколько первых шагов пути вернуть. Если не указано,
             возвращается весь путь.
 
     Returns:
-        Список клеток кратчайшего пути по порядку, начиная со ``start``.
-        Без ``length`` путь идёт до ``goal`` включительно, с ``length``
-        обрезается до первых ``length`` клеток. Если ``start`` и ``goal``
-        совпадают, список состоит из одной клетки.
+        Список клеток кратчайшего пути по порядку, начиная с первого
+        шага после ``start`` и до ``goal`` включительно. Сама ``start``
+        в путь не входит. С ``length`` путь обрезается до первых
+        ``length`` шагов. Если ``start`` и ``goal`` совпадают, список
+        пуст.
 
     Raises:
         LevelError: Если лабиринт, ``start`` или ``goal`` не прошли
-            проверку ``validate_input`` или ``goal`` недостижима
-            из ``start``.
+            проверку ``validate_input``, ``goal`` недостижима из
+            ``start`` или ``length`` меньше 1.
     """
     validate_input(maze, start)
     validate_input(maze, goal)
@@ -148,4 +149,6 @@ def get_shortest_path(
     if length is not None and length < 1:
         raise LevelError("Length must be positive!")
 
-    return paths[goal][:length]
+    path = paths[goal][1:]
+
+    return path[:length]
