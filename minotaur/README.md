@@ -1,10 +1,10 @@
-# Documentation
+# Документация
 
-Documentation is split by area of responsibility. Pick the section you need:
+Документация разделена по областям ответственности. Выберите нужный раздел:
 
-| Section | Description |
-|---------|-------------|
-| 🗺️ [**Generation**](README_GENERATION.md) | Procedural world and level generation |
-| 🖥️ [**Interface, Bonuses & Saves**](README_INTERFACE.md) | UI, power-ups and bonuses, save/load system |
-| ⚙️ [**Game Logic & Mechanics**](README_LOGIC.md) | Core gameplay rules and mechanics |
-| 👾 [**Monsters & Pathfinding**](README_MONSTERS.md) | Enemy behavior and shortest-path search |
+| Раздел | Описание |
+|--------|----------|
+| 🗺️ [**Генерация**](README_GENERATION.md) | Процедурная генерация мира и уровней |
+| 🖥️ [**Интерфейс, бонусы и сохранения**](README_INTERFACE.md) | Интерфейс, усиления и бонусы, система сохранения и загрузки |
+| ⚙️ [**Игровая логика и механики**](README_LOGIC.md) | Основные правила и механики игры |
+| 👾 [**Монстры и поиск пути**](README_MONSTERS.md) | Поведение врагов и поиск кратчайшего пути |
