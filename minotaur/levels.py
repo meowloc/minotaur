@@ -79,7 +79,15 @@ def validate_level(source):
         Исходный Level не изменяется.
 
     Raises:
-        LevelError: Ошибка чтения, неверная карта, объекты или эффекты.
+        LevelError: Файл недоступен, содержит неверный JSON или не UTF-8;
+            отсутствуют обязательные поля или неверна структура данных;
+            карта меньше 5x5, строки разной длины, есть посторонние символы
+            или проходы на внешней границе; координаты не являются парой
+            целых чисел, лежат в стене или вне внутренней части карты;
+            неизвестен тип монстра или бонуса; игрок, монстры или бонусы
+            занимают одну клетку; объект недостижим для игрока;
+            остаток заморозки не является целым неотрицательным числом
+            или состояние факела не является булевым значением.
     """
     try:
         if type(source) is Level:
@@ -144,6 +152,19 @@ def validate_level(source):
                 raise LevelError('Объект за пределами внутренней части карты.')
             if maze[row][col] != constants.FILE_AIR:
                 raise LevelError('Объект находится в стене.')
+        occupied_cells = {Cell(*data['player'])}
+        for symbol, position in data['monsters']:
+            cell = Cell(*position)
+            if cell in occupied_cells:
+                raise LevelError(
+                    'Координаты монстра совпадают с игроком или монстром.'
+                )
+            occupied_cells.add(cell)
+        for cell in bonus_cells:
+            if cell in occupied_cells:
+                raise LevelError(
+                    'Координаты бонуса совпадают с игроком или монстром.'
+                )
         distances = get_bfs_distances(maze, Cell(*data['player']))
         for position in positions:
             if Cell(*position) not in distances:
@@ -154,6 +175,8 @@ def validate_level(source):
         if type(data.get('torch_active', False)) is not bool:
             raise LevelError('Состояние факела должно быть true или false.')
         return data
+    except LevelError:
+        raise
     except (OSError, KeyError, TypeError, ValueError, AttributeError) as error:
         raise LevelError(f'Не удалось проверить уровень: {error}')
 
@@ -219,5 +242,7 @@ def load_level(path):
         torch_active = data.get('torch_active', False)
         return Level(maze, player, exit_pos, key, monsters, bonuses,
                      freeze_turns, torch_active)
+    except LevelError:
+        raise
     except (OSError, KeyError, TypeError, ValueError) as error:
         raise LevelError(f'Не удалось загрузить уровень: {error}')

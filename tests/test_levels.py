@@ -165,3 +165,57 @@ def test_duplicate_bonuses(level, tmp_path):
     path.write_text(json.dumps(data), encoding='utf-8')
     with pytest.raises(LevelError):
         load_level(path)
+
+
+@pytest.mark.parametrize('from_file', [False, True])
+@pytest.mark.parametrize('case', [
+    'player_monster', 'player_bonus', 'monster_bonus',
+    'two_monsters', 'player_monster_bonus',
+])
+def test_overlapping_objects(level, tmp_path, from_file, case):
+    """Игрок, монстры и бонусы не могут занимать одну клетку."""
+    if case in ('player_monster', 'player_monster_bonus'):
+        level.monsters[0] = ('H', level.player)
+    if case in ('player_bonus', 'player_monster_bonus'):
+        level.bonuses[level.player] = '*'
+    if case == 'monster_bonus':
+        level.bonuses[level.monsters[0][1]] = '*'
+    if case == 'two_monsters':
+        level.monsters[1] = ('W', level.monsters[0][1])
+    source = level
+    if from_file:
+        source = tmp_path / 'overlap.json'
+        save_level(level, source)
+    with pytest.raises(LevelError, match='совпадают'):
+        validate_level(source)
+    if from_file:
+        with pytest.raises(LevelError, match='совпадают'):
+            load_level(source)
+
+
+def test_validation_error_message(level, tmp_path):
+    """Ошибку проверки не оборачивают повторно ни проверка, ни загрузка."""
+    level.maze = []
+    path = tmp_path / 'invalid.json'
+    save_level(level, path)
+    expected = 'Карта должна содержать не меньше пяти строк.'
+    with pytest.raises(LevelError) as direct_error:
+        validate_level(level)
+    with pytest.raises(LevelError) as file_error:
+        load_level(path)
+    assert str(direct_error.value) == expected
+    assert str(file_error.value) == expected
+
+
+def test_load_preserves_level_error(monkeypatch):
+    """Загрузка передаёт тот же объект LevelError, который дала проверка."""
+    error = LevelError('Ошибка проверки уровня.')
+
+    def fail_validation(source):
+        """Имитировать ошибку проверки файла."""
+        raise error
+
+    monkeypatch.setattr('minotaur.levels.validate_level', fail_validation)
+    with pytest.raises(LevelError) as caught:
+        load_level('unused.json')
+    assert caught.value is error
