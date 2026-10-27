@@ -28,7 +28,7 @@ def test_init_map_invalid_level():
 
 
 def test_place_exit_and_player():
-    """Выход и игрок стоят вдоль стен поля 7x7, центр остаётся стеной."""
+    """Координаты выбраны вдоль стен поля 7x7, карта не изменена."""
     maze = [
         list("#######"),
         list("#######"),
@@ -38,15 +38,9 @@ def test_place_exit_and_player():
         list("#######"),
         list("#######"),
     ]
-    expected = [
-        list("#######"),
-        list("#####P#"),
-        list("#######"),
-        list("#######"),
-        list("#######"),
-        list("###E###"),
-        list("#######"),
-    ]
+    expected = []
+    for row in maze:
+        expected.append(row[:])
 
     positions = place_exit_and_player(maze, random.Random(0))
 
@@ -59,7 +53,7 @@ def test_placement_on_occupied_map():
     """Расстановка на занятой карте вызывает ожидаемую ошибку."""
     maze = [
         list("#####"),
-        list("#P###"),
+        list("#.###"),
         list("#####"),
         list("#####"),
         list("#####"),
@@ -72,20 +66,22 @@ def test_dfs_path():
     """При seed=0 DFS прокладывает путь вправо, затем вниз к выходу."""
     maze = [
         list("#####"),
-        list("#P###"),
         list("#####"),
-        list("###E#"),
+        list("#####"),
+        list("#####"),
         list("#####"),
     ]
     expected = [
         list("#####"),
-        list("#P..#"),
+        list("#...#"),
         list("###.#"),
-        list("###E#"),
+        list("###.#"),
         list("#####"),
     ]
 
-    assert making_labyrinth(maze, random.Random(0)) == expected
+    result = making_labyrinth(maze, Cell(1, 1), Cell(3, 3), random.Random(0))
+    assert result is maze
+    assert result == expected
 
 
 def test_dfs_without_player_and_exit():
@@ -97,24 +93,24 @@ def test_dfs_without_player_and_exit():
         list("#####"),
         list("#####"),
     ]
-    with pytest.raises(GenerationError, match="должны быть игрок и выход"):
-        making_labyrinth(maze)
+    with pytest.raises(GenerationError, match="Нужны координаты"):
+        making_labyrinth(maze, None, None)
 
 
 def test_add_loops():
     """Одна перегородка превращается в проход; остальные клетки прежние."""
     maze = [
         list("#####"),
-        list("#P..#"),
+        list("#...#"),
         list("###.#"),
-        list("#..E#"),
+        list("#...#"),
         list("#####"),
     ]
     expected = [
         list("#####"),
-        list("#P..#"),
+        list("#...#"),
         list("#.#.#"),
-        list("#..E#"),
+        list("#...#"),
         list("#####"),
     ]
     assert add_loops(maze, 1, random.Random(0)) is maze
@@ -125,9 +121,9 @@ def test_add_loops_between_left_and_right():
     """Открывается также перегородка между левым и правым коридором."""
     maze = [
         list("#####"),
-        list("#P#.#"),
         list("#.#.#"),
-        list("#..E#"),
+        list("#.#.#"),
+        list("#...#"),
         list("#####"),
     ]
     expected = []
@@ -153,11 +149,11 @@ def test_add_loops_count_and_seed():
     for _ in range(2):
         maze = [
             list("#######"),
-            list("#P....#"),
+            list("#.....#"),
             list("#####.#"),
             list("#.....#"),
             list("#.#####"),
-            list("#....E#"),
+            list("#.....#"),
             list("#######"),
         ]
         before = []
@@ -182,9 +178,9 @@ def test_add_loops_not_enough_walls():
     """Если нужна пара стен, а подходит одна, карта не меняется."""
     maze = [
         list("#####"),
-        list("#P..#"),
+        list("#...#"),
         list("###.#"),
-        list("#..E#"),
+        list("#...#"),
         list("#####"),
     ]
     before = []
@@ -199,12 +195,12 @@ def test_add_loops_does_not_extend_dfs():
     """Первый путь без подходящих перегородок не достраивается."""
     maze = [
         list("#####"),
-        list("#P###"),
         list("#####"),
-        list("###E#"),
+        list("#####"),
+        list("#####"),
         list("#####"),
     ]
-    making_labyrinth(maze, random.Random(0))
+    making_labyrinth(maze, Cell(1, 1), Cell(3, 3), random.Random(0))
     before = []
     for row in maze:
         before.append(row[:])
@@ -228,3 +224,36 @@ def test_add_loops_invalid_map():
     maze[1].pop()
     with pytest.raises(LevelError, match="Строки карты"):
         add_loops(maze, 1)
+
+
+def test_generation_to_level_file(tmp_path):
+    """Карта и координаты проходят все этапы без поиска объектов в матрице."""
+    from minotaur.custom_types import Level
+    from minotaur.levels import load_level, save_level, validate_level
+
+    rng = random.Random(2)
+    maze = init_map_gen(0)
+    player, exit_pos = place_exit_and_player(maze, rng)
+    making_labyrinth(maze, player, exit_pos, rng)
+    add_loops(maze, constants.LEVEL_CONTENTS[0][3], rng)
+    for row in maze:
+        for symbol in row:
+            assert symbol in (constants.FILE_AIR, constants.FILE_WALL)
+    level = Level(maze, player, exit_pos, None)
+    validate_level(level)
+    path = tmp_path / 'generated.json'
+    save_level(level, path)
+    assert load_level(path) == level
+
+
+@pytest.mark.parametrize('player, exit_pos', [
+    (Cell(0, 1), Cell(3, 3)),
+    (Cell(1, 1), Cell(2, 3)),
+    (Cell(True, 1), Cell(3, 3)),
+])
+def test_dfs_invalid_coordinates(player, exit_pos):
+    """Неверные координаты отклоняются до изменения карты."""
+    maze = init_map_gen(0)
+    with pytest.raises(GenerationError):
+        making_labyrinth(maze, player, exit_pos)
+    assert maze == init_map_gen(0)

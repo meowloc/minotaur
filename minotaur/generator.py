@@ -30,43 +30,44 @@ def init_map_gen(level_num):
             for _ in range(height)]
 
 
-def making_labyrinth(map_matrix, rng=None):
+def making_labyrinth(map_matrix, player, exit_pos, rng=None):
     """Проложить первый путь от игрока до выхода с помощью DFS.
-    Если кратко: находим игрока, находим выход.
+    Координаты игрока и выхода передаются отдельно от карты.
     Рандомно выбираем путь от игрока до выхода, и по этому пути
     убираем стены и ставим '.'.
 
     Args:
-        map_matrix: Карта после init_map_gen и place_exit_and_player.
-            Матрица изменяется на месте.
+        map_matrix: Карта из стен после init_map_gen. Изменяется на месте.
+        player: Координата игрока Cell из place_exit_and_player.
+        exit_pos: Координата выхода Cell из place_exit_and_player.
         rng: Генератор random.Random для воспроизводимости.
 
     Returns:
-        Та же матрица с проходами и сохранёнными игроком и выходом.
+        Та же матрица только из стен и проходов, без символов объектов.
         Ветки, исследованные до достижения выхода, тоже остаются проходами.
 
     Raises:
-        GenerationError: Нет игрока, выхода или пути между ними.
+        GenerationError: Неверные координаты игрока или выхода, либо нет пути.
     """
     if rng is None:
         rng = random.Random()
 
-    start = None
-    exit_pos = None
     height = len(map_matrix)
-    for row in range(height):
-        for col in range(len(map_matrix[row])):
-            if map_matrix[row][col] == constants.PLAYER:
-                start = Cell(row, col)
-            elif map_matrix[row][col] == constants.EXIT:
-                exit_pos = Cell(row, col)
-
-    if start is None or exit_pos is None:
-        raise GenerationError("На карте должны быть игрок и выход.")
-
+    if height < 5 or len(map_matrix[0]) < 5:
+        raise GenerationError("Размеры карты должны быть не меньше 5.")
     width = len(map_matrix[0])
-    stack = [start]
-    visited = [start]
+    for cell in (player, exit_pos):
+        if type(cell) is not Cell:
+            raise GenerationError("Нужны координаты игрока и выхода Cell.")
+        if type(cell.row) is not int or type(cell.col) is not int:
+            raise GenerationError("Координаты должны быть целыми числами.")
+        if (not 0 < cell.row < height - 1 or not 0 < cell.col < width - 1
+                or cell.row % 2 == 0 or cell.col % 2 == 0):
+            raise GenerationError("Координаты должны быть внутри и нечётными.")
+
+    map_matrix[player.row][player.col] = constants.FILE_AIR
+    stack = [player]
+    visited = [player]
     directions = [(dr * 2, dc * 2)
                   for dr, dc in constants.DIRECTIONS.values()]
 
@@ -99,8 +100,7 @@ def making_labyrinth(map_matrix, rng=None):
         wall_row = (row + next_row) // 2
         wall_col = (col + next_col) // 2
         map_matrix[wall_row][wall_col] = constants.FILE_AIR
-        if next_cell != exit_pos:
-            map_matrix[next_row][next_col] = constants.FILE_AIR
+        map_matrix[next_row][next_col] = constants.FILE_AIR
 
         visited.append(next_cell)
         stack.append(next_cell)
@@ -118,8 +118,8 @@ def add_loops(map_matrix, count, rng=None):
         rng: Генератор random.Random для воспроизводимости.
 
     Returns:
-        Та же карта с дополнительными путями. Старые проходы, игрок,
-        выход и внешние стены сохраняются. При count=0 карта не меняется.
+        Та же карта с дополнительными путями. Старые проходы
+        и внешние стены сохраняются. При count=0 карта не меняется.
 
     Raises:
         LevelError: Неверное число проходов, карта меньше 5x5,
@@ -156,8 +156,8 @@ def add_loops(map_matrix, count, rng=None):
                 second = map_matrix[row][col + 1]
             else:
                 continue
-            if (first != constants.FILE_WALL
-                    and second != constants.FILE_WALL):
+            if (first == constants.FILE_AIR
+                    and second == constants.FILE_AIR):
                 walls.append(Cell(row, col))
 
     if count > len(walls):
