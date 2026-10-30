@@ -9,6 +9,7 @@ from minotaur.custom_types import Cell
 from minotaur.exceptions import GenerationError, LevelError, PlaceError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.levels import place_exit_and_player
+from minotaur.pathfinding import get_bfs_distances
 
 
 def test_init_map():
@@ -62,8 +63,8 @@ def test_placement_on_occupied_map():
         place_exit_and_player(maze)
 
 
-def test_dfs_path():
-    """При seed=0 DFS прокладывает путь вправо, затем вниз к выходу."""
+def test_dfs_continues_after_exit():
+    """DFS проходит через выход и открывает оставшуюся комнату."""
     maze = [
         list("#####"),
         list("#####"),
@@ -75,7 +76,7 @@ def test_dfs_path():
         list("#####"),
         list("#...#"),
         list("###.#"),
-        list("###.#"),
+        list("#...#"),
         list("#####"),
     ]
 
@@ -195,18 +196,79 @@ def test_add_loops_does_not_extend_dfs():
     """Первый путь без подходящих перегородок не достраивается."""
     maze = [
         list("#####"),
-        list("#####"),
-        list("#####"),
-        list("#####"),
+        list("#...#"),
+        list("###.#"),
+        list("###.#"),
         list("#####"),
     ]
-    making_labyrinth(maze, Cell(1, 1), Cell(3, 3), random.Random(0))
     before = []
     for row in maze:
         before.append(row[:])
     with pytest.raises(LevelError, match="Недостаточно стен"):
         add_loops(maze, 1)
     assert maze == before
+
+
+@pytest.mark.parametrize('level_num', range(constants.MAX_LEVEL))
+def test_full_maze_and_loops(level_num):
+    """Все комнаты достижимы, а штатное число петель доступно на 300 seed."""
+    height, width = constants.LEVEL_SIZES[level_num]
+    room_count = ((height - 1) // 2) * ((width - 1) // 2)
+    loop_count = constants.LEVEL_CONTENTS[level_num][3]
+    for seed in range(300):
+        rng = random.Random(seed)
+        maze = init_map_gen(level_num)
+        player, exit_pos = place_exit_and_player(maze, rng)
+        making_labyrinth(maze, player, exit_pos, rng)
+
+        distances = get_bfs_distances(maze, player)
+        assert exit_pos in distances
+        for row in range(1, height - 1, 2):
+            for col in range(1, width - 1, 2):
+                assert Cell(row, col) in distances
+        # У дерева из N комнат ровно N - 1 открытых перегородок.
+        assert len(distances) == 2 * room_count - 1
+
+        before = [row[:] for row in maze]
+        assert add_loops(maze, loop_count, rng) is maze
+        changed = 0
+        for row in range(height):
+            for col in range(width):
+                if maze[row][col] != before[row][col]:
+                    assert before[row][col] == constants.FILE_WALL
+                    assert maze[row][col] == constants.FILE_AIR
+                    changed += 1
+                if row in (0, height - 1) or col in (0, width - 1):
+                    assert maze[row][col] == constants.FILE_WALL
+                if row % 2 == 0 and col % 2 == 0:
+                    assert maze[row][col] == constants.FILE_WALL
+        assert changed == loop_count
+        assert len(get_bfs_distances(maze, player)) == (
+            2 * room_count - 1 + loop_count
+        )
+
+
+def test_full_generation_seed():
+    """Один seed повторяет карту и координаты всей цепочки генерации."""
+    results = []
+    for _ in range(2):
+        rng = random.Random(10)
+        maze = init_map_gen(0)
+        player, exit_pos = place_exit_and_player(maze, rng)
+        making_labyrinth(maze, player, exit_pos, rng)
+        add_loops(maze, constants.LEVEL_CONTENTS[0][3], rng)
+        results.append((maze, player, exit_pos))
+    assert results[0] == results[1]
+
+
+def test_dfs_exit_at_start():
+    """Даже при совпадении старта и выхода DFS обходит все комнаты."""
+    maze = init_map_gen(0)
+    making_labyrinth(maze, Cell(1, 1), Cell(1, 1), random.Random(0))
+    distances = get_bfs_distances(maze, Cell(1, 1))
+    for row in range(1, len(maze) - 1, 2):
+        for col in range(1, len(maze[0]) - 1, 2):
+            assert Cell(row, col) in distances
 
 
 def test_add_loops_invalid_count():

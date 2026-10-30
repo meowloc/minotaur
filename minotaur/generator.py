@@ -1,4 +1,4 @@
-"""Создание заготовки лабиринта и первого пути обходом в глубину."""
+"""Создание полного лабиринта обходом в глубину и добавление обходных путей."""
 
 import random
 
@@ -31,10 +31,10 @@ def init_map_gen(level_num):
 
 
 def making_labyrinth(map_matrix, player, exit_pos, rng=None):
-    """Проложить первый путь от игрока до выхода с помощью DFS.
+    """Построить полный лабиринт с помощью DFS со стеком и возвратом.
     Координаты игрока и выхода передаются отдельно от карты.
-    Рандомно выбираем путь от игрока до выхода, и по этому пути
-    убираем стены и ставим '.'.
+    Обходим все комнаты с нечётными координатами, открывая проходы
+    между ними. Достижение выхода не останавливает обход.
 
     Args:
         map_matrix: Карта из стен после init_map_gen. Изменяется на месте.
@@ -44,10 +44,11 @@ def making_labyrinth(map_matrix, player, exit_pos, rng=None):
 
     Returns:
         Та же матрица только из стен и проходов, без символов объектов.
-        Ветки, исследованные до достижения выхода, тоже остаются проходами.
+        Все комнаты соединены, между ними ровно один путь.
+        Дополнительные пути затем создаёт add_loops.
 
     Raises:
-        GenerationError: Неверные координаты игрока или выхода, либо нет пути.
+        GenerationError: Неверные размеры карты или координаты объектов.
     """
     if rng is None:
         rng = random.Random()
@@ -72,9 +73,6 @@ def making_labyrinth(map_matrix, player, exit_pos, rng=None):
                   for dr, dc in constants.DIRECTIONS.values()]
 
     while len(stack) > 0:
-        if stack[-1] == exit_pos:
-            return map_matrix
-
         row, col = stack[-1]
         candidates = []
         for dr, dc in directions:
@@ -105,7 +103,7 @@ def making_labyrinth(map_matrix, player, exit_pos, rng=None):
         visited.append(next_cell)
         stack.append(next_cell)
 
-    raise GenerationError("Не удалось проложить путь до выхода.")
+    return map_matrix
 
 
 def add_loops(map_matrix, count, rng=None):
