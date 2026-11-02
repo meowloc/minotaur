@@ -371,7 +371,8 @@ def test_bonus_behind_monster(monkeypatch):
     assert Cell(3, 9) in level.bonuses
 
 
-@pytest.mark.parametrize('level_num', [-1, constants.MAX_LEVEL + 1, True, '0', 0.5])
+@pytest.mark.parametrize('level_num', [-1, constants.MAX_LEVEL + 1,
+                                       True, '0', 0.5])
 def test_objects_invalid_level(level_num):
     """Неверный номер не используется как индекс настроек."""
     with pytest.raises(PlaceError, match='номер уровня'):
