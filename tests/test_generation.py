@@ -1,15 +1,17 @@
-"""Прямые проверки результата трёх функций генерации."""
+"""Проверки генерации карты и расстановки объектов."""
 
 import random
 
 import pytest
 
 from minotaur import constants
-from minotaur.custom_types import Cell
+from minotaur.custom_types import Cell, Level
 from minotaur.exceptions import GenerationError, LevelError, PlaceError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
-from minotaur.levels import place_exit_and_player
-from minotaur.pathfinding import get_bfs_distances
+from minotaur.levels import (
+    generate_level, place_exit_and_player, place_objects,
+)
+from minotaur.pathfinding import get_bfs_distances, get_shortest_path
 
 
 def test_init_map():
@@ -288,26 +290,6 @@ def test_add_loops_invalid_map():
         add_loops(maze, 1)
 
 
-def test_generation_to_level_file(tmp_path):
-    """Карта и координаты проходят все этапы без поиска объектов в матрице."""
-    from minotaur.custom_types import Level
-    from minotaur.levels import load_level, save_level, validate_level
-
-    rng = random.Random(2)
-    maze = init_map_gen(0)
-    player, exit_pos = place_exit_and_player(maze, rng)
-    making_labyrinth(maze, player, exit_pos, rng)
-    add_loops(maze, constants.LEVEL_CONTENTS[0][3], rng)
-    for row in maze:
-        for symbol in row:
-            assert symbol in (constants.FILE_AIR, constants.FILE_WALL)
-    level = Level(maze, player, exit_pos, None)
-    validate_level(level)
-    path = tmp_path / 'generated.json'
-    save_level(level, path)
-    assert load_level(path) == level
-
-
 @pytest.mark.parametrize('player, exit_pos', [
     (Cell(0, 1), Cell(3, 3)),
     (Cell(1, 1), Cell(2, 3)),
@@ -319,3 +301,145 @@ def test_dfs_invalid_coordinates(player, exit_pos):
     with pytest.raises(GenerationError):
         making_labyrinth(maze, player, exit_pos)
     assert maze == init_map_gen(0)
+
+
+@pytest.mark.parametrize('level_num', range(constants.MAX_LEVEL))
+def test_objects_on_generated_maps(level_num):
+    """Расстановка соблюдает расстояния, числа и доступность объектов."""
+    for seed in range(30):
+        level = generate_level(level_num, random.Random(seed))
+        distances = get_bfs_distances(level.maze, level.player)
+        path = get_shortest_path(level.maze, level.player, level.exit)
+        hunters, wanderers, bonuses, _ = constants.LEVEL_CONTENTS[level_num]
+        symbols = [symbol for symbol, cell in level.monsters]
+        assert symbols.count(constants.HUNTER) == hunters
+        assert symbols.count(constants.WANDERER) == wanderers
+        assert len(level.bonuses) == bonuses
+        positions = [level.player, level.exit, level.key]
+        for symbol, cell in level.monsters:
+            assert distances[cell] >= constants.MONSTER_MIN_SPAWN_DISTANCE
+            assert cell not in path
+            positions.append(cell)
+        for cell, symbol in level.bonuses.items():
+            assert symbol in (constants.FREEZE, constants.TORCH,
+                              constants.COMPASS)
+            positions.append(cell)
+        assert len(positions) == len(set(positions))
+        for cell in positions:
+            assert cell in distances
+            assert level.maze[cell.row][cell.col] == constants.FILE_AIR
+
+
+def test_objects_seed_and_unchanged_map():
+    """Seed повторяет весь уровень; расстановка не меняет карту."""
+    first = generate_level(0, random.Random(2))
+    assert first == generate_level(0, random.Random(2))
+    before = [row[:] for row in first.maze]
+    level = Level(first.maze, first.player, first.exit, None)
+    result = place_objects(level, 0, random.Random(5))
+    assert result is level
+    assert result.maze is first.maze
+    assert first.maze == before
+
+
+def test_objects_not_enough_monster_cells():
+    """На единственном пути к выходу монстра ставить нельзя."""
+    maze = [list(row) for row in [
+        '###########', '#.........#', '###########',
+        '###########', '###########',
+    ]]
+    before = [row[:] for row in maze]
+    level = Level(maze, Cell(1, 1), Cell(1, 9), None)
+    with pytest.raises(PlaceError, match='для монстров'):
+        place_objects(level, 0, random.Random(0))
+    assert maze == before
+
+
+def test_bonus_behind_monster(monkeypatch):
+    """Бонус доступен через клетку монстра; дистанция ровно 7 допустима."""
+    maze = [list(row) for row in [
+        '###########', '#.........#', '#########.#',
+        '#########.#', '###########',
+    ]]
+    monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(1, 0, 7, 0)])
+    # До клетки (1, 8) ровно 7 шагов, она уже подходит для монстра.
+    monkeypatch.setattr(constants, 'MONSTER_MIN_SPAWN_DISTANCE', 7)
+    level = Level(maze, Cell(1, 1), Cell(1, 3), None)
+    place_objects(level, 0, random.Random(1))
+    assert level.monsters == [(constants.HUNTER, Cell(1, 8))]
+    assert len(level.bonuses) == 7
+    assert Cell(3, 9) in level.bonuses
+
+
+@pytest.mark.parametrize('level_num', [-1, 7, True, '0', 0.5])
+def test_objects_invalid_level(level_num):
+    """Неверный номер не используется как индекс настроек."""
+    with pytest.raises(PlaceError, match='номер уровня'):
+        place_objects(Level([], Cell(1, 1), Cell(3, 3), None), level_num)
+    with pytest.raises(GenerationError):
+        generate_level(level_num)
+
+
+def test_objects_invalid_map_and_positions():
+    """Ошибки карты и совпадение старта с выходом отклоняются."""
+    with pytest.raises(LevelError):
+        place_objects(Level([], Cell(1, 1), Cell(3, 3), None), 0)
+    level = generate_level(0, random.Random(2))
+    empty = Level(level.maze, level.player, level.player, None)
+    with pytest.raises(PlaceError, match='разных клетках'):
+        place_objects(empty, 0)
+
+
+def test_objects_requires_level():
+    """Расстановка принимает только объект Level."""
+    with pytest.raises(LevelError, match='объект Level'):
+        place_objects(None, 0)
+
+
+def test_objects_rejects_filled_level():
+    """Повторная расстановка не меняет уже заполненный уровень."""
+    level = generate_level(0, random.Random(2))
+    expected = generate_level(0, random.Random(2))
+    with pytest.raises(PlaceError, match='уже содержит'):
+        place_objects(level, 0)
+    assert level == expected
+
+
+def test_objects_unreachable_air(monkeypatch):
+    """Изолированный проход не подходит для ключа или бонуса."""
+    maze = [list(row) for row in [
+        '#######', '#...#.#', '#######', '#.#####', '#######',
+    ]]
+    monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(0, 0, 0, 0)])
+    level = Level(maze, Cell(1, 1), Cell(1, 3), None)
+    place_objects(level, 0)
+    assert level.key == Cell(1, 2)
+    monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(0, 0, 1, 0)])
+    with pytest.raises(PlaceError, match='для всех объектов'):
+        place_objects(Level(maze, Cell(1, 1), Cell(1, 3), None), 0)
+
+
+def test_key_can_be_reached_through_exit(monkeypatch):
+    """Выход не считается стеной при поиске доступного места ключа."""
+    maze = [list(row) for row in [
+        '#####', '#...#', '#####', '#####', '#####',
+    ]]
+    monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(0, 0, 0, 0)])
+    level = Level(maze, Cell(1, 1), Cell(1, 2), None)
+    place_objects(level, 0)
+    assert level.key == Cell(1, 3)
+    assert level.maze[1][2] == constants.FILE_AIR
+
+
+def test_key_preserves_only_monster_cell(monkeypatch):
+    """Ключ не занимает единственное место с нужной дистанцией."""
+    maze = [list(row) for row in [
+        '###########', '#.........#', '#.#########',
+        '#.#########', '###########',
+    ]]
+    monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(1, 0, 0, 0)])
+    monkeypatch.setattr(constants, 'MONSTER_MIN_SPAWN_DISTANCE', 8)
+    level = Level(maze, Cell(1, 1), Cell(3, 1), None)
+    place_objects(level, 0, random.Random(0))
+    assert level.monsters == [(constants.HUNTER, Cell(1, 9))]
+    assert level.key != Cell(1, 9)

@@ -29,6 +29,7 @@ class Level:
         bonuses: Бонусы: позиция бонуса и его символ.
         freeze_turns: Сколько ходов ещё действует заморозка, 0 — не действует.
         torch_active: Действует ли факел до конца уровня.
+        key_captured: Подобрал ли игрок ключ.
     """
 
     maze: Maze
@@ -39,3 +40,4 @@ class Level:
     bonuses: dict[Cell, str] = field(default_factory=dict)
     freeze_turns: int = 0
     torch_active: bool = False
+    key_captured: bool = False
