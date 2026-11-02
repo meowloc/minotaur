@@ -175,7 +175,7 @@ def generate_level(level_num, rng=None):
     player, exit_pos = place_exit_and_player(maze, rng)
     making_labyrinth(maze, player, exit_pos, rng)
     add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
-    level = Level(maze, player, exit_pos, None, key_captured=False)
+    level = Level(maze, player, exit_pos, None)
     return place_objects(level, level_num, rng)
 
 
