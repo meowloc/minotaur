@@ -1,12 +1,18 @@
-"""Проверки файлов уровня и сохранения эффектов."""
+"""Проверки корректности уровня, сохранения и загрузки."""
 
 import json
+import random
 
 import pytest
 
+from minotaur import constants
 from minotaur.custom_types import Cell, Level
 from minotaur.exceptions import LevelError
-from minotaur.levels import load_level, save_level, validate_level
+from minotaur.generator import add_loops, init_map_gen, making_labyrinth
+from minotaur.levels import (
+    load_level, place_exit_and_player,
+    save_level, validate_level,
+)
 
 
 @pytest.fixture
@@ -219,3 +225,20 @@ def test_load_preserves_level_error(monkeypatch):
     with pytest.raises(LevelError) as caught:
         load_level('unused.json')
     assert caught.value is error
+
+
+def test_generation_to_level_file(tmp_path):
+    """Карта и координаты проходят все этапы без поиска объектов в матрице."""
+    rng = random.Random(2)
+    maze = init_map_gen(0)
+    player, exit_pos = place_exit_and_player(maze, rng)
+    making_labyrinth(maze, player, exit_pos, rng)
+    add_loops(maze, constants.LEVEL_CONTENTS[0][3], rng)
+    for row in maze:
+        for symbol in row:
+            assert symbol in (constants.FILE_AIR, constants.FILE_WALL)
+    level = Level(maze, player, exit_pos, None)
+    validate_level(level)
+    path = tmp_path / 'generated.json'
+    save_level(level, path)
+    assert load_level(path) == level
