@@ -1,2 +1,3 @@
 readchar>=4.0,<5
 colorama>=0.4,<0.5
+pwntools==4.15.0
