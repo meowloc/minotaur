@@ -6,7 +6,7 @@ LEVEL_SIZES = [(7, 9), (9, 11), (11, 13), (13, 15),
 LEVEL_CONTENTS = [(0, 1, 1, 2), (1, 0, 1, 3), (1, 1, 2, 4), (1, 2, 2, 6),
                   (2, 1, 3, 8), (2, 2, 3, 10), (3, 2, 4, 12)]
 
-MAX_LEVEL = len(LEVEL_SIZES)
+MAX_LEVEL = len(LEVEL_SIZES) - 1
 
 # level files
 FILE_AIR = "."
@@ -38,7 +38,7 @@ DIRECTIONS = {
 MONSTER_MIN_SPAWN_DISTANCE = 7
 
 # monsters
-HUNTER_STEP_RATE = 2
+HUNTER_STEP_RATE = 1
 WANDERER_STEP_RATE = 1
 WANDERER_CHASE_BFS_STEPS = 5
 
