@@ -55,7 +55,7 @@ def test_overwrite(level, tmp_path):
     level.bonuses.clear()
     level.freeze_turns = 0
     level.torch_active = False
-    level.player = level.exit
+    level.player = Cell(3, 4)
     save_level(level, path)
     assert load_level(path) == level
 
@@ -169,21 +169,46 @@ def test_duplicate_bonuses(level, tmp_path):
     data = json.loads(path.read_text(encoding='utf-8'))
     data['bonuses'].append(data['bonuses'][0])
     path.write_text(json.dumps(data), encoding='utf-8')
-    with pytest.raises(LevelError):
+    message = 'Координаты бонуса и бонуса совпадают'
+    with pytest.raises(LevelError, match=message):
         load_level(path)
 
 
 @pytest.mark.parametrize('from_file', [False, True])
-@pytest.mark.parametrize('case', [
-    'player_monster', 'player_bonus', 'monster_bonus',
-    'two_monsters', 'player_monster_bonus',
+@pytest.mark.parametrize('case, names', [
+    ('player_exit', 'выхода и игрока'),
+    ('player_key', 'ключа и игрока'),
+    ('exit_key', 'ключа и выхода'),
+    ('player_monster', 'монстра и игрока'),
+    ('exit_monster', 'монстра и выхода'),
+    ('key_monster', 'монстра и ключа'),
+    ('player_bonus', 'бонуса и игрока'),
+    ('exit_bonus', 'бонуса и выхода'),
+    ('key_bonus', 'бонуса и ключа'),
+    ('monster_bonus', 'бонуса и монстра'),
+    ('two_monsters', 'монстра и монстра'),
+    ('player_monster_bonus', 'монстра и игрока'),
 ])
-def test_overlapping_objects(level, tmp_path, from_file, case):
-    """Игрок, монстры и бонусы не могут занимать одну клетку."""
+def test_overlapping_objects(level, tmp_path, from_file, case, names):
+    """Любая пара объектов отклоняется с указанием обоих типов."""
+    if case == 'player_exit':
+        level.exit = level.player
+    if case == 'player_key':
+        level.key = level.player
+    if case == 'exit_key':
+        level.key = level.exit
     if case in ('player_monster', 'player_monster_bonus'):
         level.monsters[0] = ('H', level.player)
+    if case == 'exit_monster':
+        level.monsters[0] = ('H', level.exit)
+    if case == 'key_monster':
+        level.monsters[0] = ('H', level.key)
     if case in ('player_bonus', 'player_monster_bonus'):
         level.bonuses[level.player] = '*'
+    if case == 'exit_bonus':
+        level.bonuses[level.exit] = '*'
+    if case == 'key_bonus':
+        level.bonuses[level.key] = '*'
     if case == 'monster_bonus':
         level.bonuses[level.monsters[0][1]] = '*'
     if case == 'two_monsters':
@@ -192,10 +217,11 @@ def test_overlapping_objects(level, tmp_path, from_file, case):
     if from_file:
         source = tmp_path / 'overlap.json'
         save_level(level, source)
-    with pytest.raises(LevelError, match='совпадают'):
+    message = f'Координаты {names} совпадают'
+    with pytest.raises(LevelError, match=message):
         validate_level(source)
     if from_file:
-        with pytest.raises(LevelError, match='совпадают'):
+        with pytest.raises(LevelError, match=message):
             load_level(source)
 
 

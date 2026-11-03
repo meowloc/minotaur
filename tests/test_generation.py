@@ -387,7 +387,8 @@ def test_objects_invalid_map_and_positions():
         place_objects(Level([], Cell(1, 1), Cell(3, 3), None), 0)
     level = generate_level(0, random.Random(2))
     empty = Level(level.maze, level.player, level.player, None)
-    with pytest.raises(PlaceError, match='разных клетках'):
+    message = 'Координаты выхода и игрока совпадают'
+    with pytest.raises(LevelError, match=message):
         place_objects(empty, 0)
 
 

@@ -88,7 +88,7 @@ def place_objects(level: Level, level_num, rng=None):
         Все объекты занимают разные клетки.
 
     Raises:
-        PlaceError: Неверный индекс уровня, совпали игрок и выход,
+        PlaceError: Неверный индекс уровня,
             уровень уже содержит объекты или не хватает клеток.
         LevelError: Передан не Level, карта или координаты неверны.
     """
@@ -100,8 +100,6 @@ def place_objects(level: Level, level_num, rng=None):
     validate_level(level)
     if level.key is not None or level.monsters or level.bonuses:
         raise PlaceError("Уровень уже содержит ключ, монстров или бонусы.")
-    if level.player == level.exit:
-        raise PlaceError("Игрок и выход должны стоять в разных клетках.")
     if rng is None:
         rng = random.Random()
 
@@ -195,12 +193,13 @@ def validate_level(source):
             карта меньше 5x5, строки разной длины, есть посторонние символы
             или проходы на внешней границе; координаты не являются парой
             целых чисел, лежат в стене или вне внутренней части карты;
-            неизвестен тип монстра или бонуса; игрок, монстры или бонусы
+            неизвестен тип монстра или бонуса; любые два объекта
             занимают одну клетку; объект недостижим для игрока;
             остаток заморозки не является целым неотрицательным числом
             или состояние факела не является булевым значением.
     """
     try:
+        # ДАННЫЕ: получаем поля уровня из объекта Level или JSON-файла.
         if type(source) is Level:
             data = {
                 'maze': source.maze,
@@ -216,6 +215,7 @@ def validate_level(source):
             with open(source, encoding='utf-8') as file:
                 data = json.load(file)
 
+        # КАРТА: проверяем размеры, символы.
         maze = data['maze']
         if type(maze) is not list or len(maze) < 5:
             raise LevelError('Карта должна содержать не меньше пяти строк.')
@@ -227,33 +227,34 @@ def validate_level(source):
             for symbol in row:
                 if symbol not in (constants.FILE_WALL, constants.FILE_AIR):
                     raise LevelError('На карте допустимы только # и .')
+        # ГРАНИЦЫ: вся внешняя рамка карты должна состоять из стен.
         for row in range(len(maze)):
             for col in range(len(maze[0])):
                 if row in (0, len(maze) - 1) or col in (0, len(maze[0]) - 1):
                     if maze[row][col] != constants.FILE_WALL:
                         raise LevelError('Граница карты должна быть стеной.')
 
-        positions = [data['player'], data['exit']]
+        # ОБЪЕКТЫ: собираем названия и позиции в общий список.
+        # Проверяем списки монстров и бонусов и допустимость их символов.
+        objects = [('игрока', data['player']), ('выхода', data['exit'])]
         if data['key'] is not None:
-            positions.append(data['key'])
+            objects.append(('ключа', data['key']))
         if (type(data['monsters']) is not list
                 or type(data['bonuses']) is not list):
             raise LevelError('Монстры и бонусы должны быть списками.')
         for symbol, position in data['monsters']:
             if symbol not in (constants.HUNTER, constants.WANDERER):
                 raise LevelError('Неизвестный тип монстра.')
-            positions.append(position)
-        bonus_cells = set()
+            objects.append(('монстра', position))
         for position, symbol in data['bonuses']:
             if symbol not in (constants.FREEZE, constants.TORCH,
                               constants.COMPASS):
                 raise LevelError('Неизвестный тип бонуса.')
-            cell = Cell(*position)
-            if cell in bonus_cells:
-                raise LevelError('В одной клетке несколько бонусов.')
-            bonus_cells.add(cell)
-            positions.append(position)
-        for position in positions:
+            objects.append(('бонуса', position))
+        # КООРДИНАТЫ: два целых числа, клетка внутри карты и не в стене.
+        # Занятые клетки храним вместе с названиями объектов для ошибок.
+        occupied_cells = {}
+        for name, position in objects:
             if type(position) not in (list, tuple, Cell) or len(position) != 2:
                 raise LevelError('Нужна пара координат.')
             row, col = position
@@ -263,23 +264,19 @@ def validate_level(source):
                 raise LevelError('Объект за пределами внутренней части карты.')
             if maze[row][col] != constants.FILE_AIR:
                 raise LevelError('Объект находится в стене.')
-        occupied_cells = {Cell(*data['player'])}
-        for symbol, position in data['monsters']:
+            # СОВПАДЕНИЯ: никакие два объекта не могут занимать одну клетку.
             cell = Cell(*position)
             if cell in occupied_cells:
                 raise LevelError(
-                    'Координаты монстра совпадают с игроком или монстром.'
+                    f'Координаты {name} и {occupied_cells[cell]} совпадают.'
                 )
-            occupied_cells.add(cell)
-        for cell in bonus_cells:
-            if cell in occupied_cells:
-                raise LevelError(
-                    'Координаты бонуса совпадают с игроком или монстром.'
-                )
+            occupied_cells[cell] = name
+        # ДОСТИЖИМОСТЬ: до каждого объекта должен быть путь от игрока.
         distances = get_bfs_distances(maze, Cell(*data['player']))
-        for position in positions:
-            if Cell(*position) not in distances:
+        for cell in occupied_cells:
+            if cell not in distances:
                 raise LevelError('Объект недостижим для игрока.')
+        # ЭФФЕКТЫ: заморозка — целое число >= 0, факел — True или False.
         freeze_turns = data.get('freeze_turns', 0)
         if type(freeze_turns) is not int or freeze_turns < 0:
             raise LevelError('Остаток заморозки должен быть целым и >= 0.')
