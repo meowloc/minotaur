@@ -22,8 +22,8 @@ class Player:
 
     Attributes:
         id: Уникальный идентификатор игрока.
-        nick: Никнейм игрока, ``None``, если не задан.
         pos: Текущая позиция игрока в лабиринте.
+        nick: Никнейм игрока, ``None``, если не задан.
         last_played_round: Номер последнего раунда, в котором
             игрок участвовал. ``None``, если ещё не участвовал.
         is_connected: Подключён ли игрок к серверу.
@@ -36,10 +36,10 @@ class Player:
     """
 
     id: int
-    nick: str | None
     pos: Cell
+    nick: str | None = None
 
-    last_played_round: int | None
+    last_played_round: int | None = None
     is_connected: bool = False
     is_alive: bool = True
     is_ready: bool = False
