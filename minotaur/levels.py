@@ -4,7 +4,7 @@ import json
 import random
 
 from minotaur import constants
-from minotaur.custom_types import Cell, Level
+from minotaur.custom_types import Cell, Level, Player
 from minotaur.exceptions import LevelError, PlaceError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.pathfinding import get_bfs_distances, get_shortest_path
@@ -104,14 +104,18 @@ def place_objects(level: Level, level_num, rng=None):
         rng = random.Random()
 
     hunters, wanderers, bonus_count, _ = constants.LEVEL_CONTENTS[level_num]
-    distances = get_bfs_distances(level.maze, level.player)
-    exit_path = get_shortest_path(level.maze, level.player, level.exit)
+    if not level.players:
+        raise PlaceError("На уровне нет игроков.")
+    player_positions = {player.pos for player in level.players.values()}
+    player = next(iter(level.players.values())).pos
+    distances = get_bfs_distances(level.maze, player)
+    exit_path = get_shortest_path(level.maze, player, level.exit)
 
     key_cells = []
     monster_cells = []
     free_cells = []
     for cell in distances:
-        if cell == level.player or cell == level.exit:
+        if cell in player_positions or cell == level.exit:
             continue
         free_cells.append(cell)
         key_cells.append(cell)
@@ -173,7 +177,9 @@ def generate_level(level_num, rng=None):
     player, exit_pos = place_exit_and_player(maze, rng)
     making_labyrinth(maze, player, exit_pos, rng)
     add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
-    level = Level(maze, player, exit_pos, None)
+    level = Level(maze=maze, exit=exit_pos, key=None,
+                  players={1: Player(id=1, nick=None, pos=player,
+                                     last_played_round=None)})
     return place_objects(level, level_num, rng)
 
 
@@ -203,13 +209,19 @@ def validate_level(source):
         if type(source) is Level:
             data = {
                 'maze': source.maze,
-                'player': source.player,
+                'players': {str(player_id): {
+                    'id': player.id, 'nick': player.nick,
+                    'pos': player.pos, 'is_connected': player.is_connected,
+                    'is_alive': player.is_alive, 'is_ready': player.is_ready,
+                    'last_played_round': player.last_played_round,
+                    'torch_active': player.torch_active,
+                    'steps': player.steps, 'score': player.score,
+                } for player_id, player in source.players.items()},
                 'exit': source.exit,
                 'key': source.key,
                 'monsters': source.monsters,
                 'bonuses': list(source.bonuses.items()),
                 'freeze_turns': source.freeze_turns,
-                'torch_active': source.torch_active,
             }
         else:
             with open(source, encoding='utf-8') as file:
@@ -236,7 +248,31 @@ def validate_level(source):
 
         # ОБЪЕКТЫ: собираем названия и позиции в общий список.
         # Проверяем списки монстров и бонусов и допустимость их символов.
-        objects = [('игрока', data['player']), ('выхода', data['exit'])]
+        if type(data['players']) is not dict:
+            raise LevelError('Игроки должны быть словарём.')
+        player_positions = []
+        for player_id, player in data['players'].items():
+            if type(player) is not dict:
+                raise LevelError('Некорректные данные игрока.')
+            if type(player.get('id')) is not int\
+                    or str(player['id']) != str(player_id):
+                raise LevelError('Некорректный идентификатор игрока.')
+            if player.get('nick') is not None\
+                    and type(player['nick']) is not str:
+                raise LevelError('Некорректный никнейм игрока.')
+            for field in ('is_connected', 'is_alive',
+                          'is_ready', 'torch_active'):
+                if type(player.get(field, False)) is not bool:
+                    raise LevelError('Некорректное состояние игрока.')
+            if (player.get('last_played_round') is not None
+                    and type(player['last_played_round']) is not int):
+                raise LevelError('Некорректные данные игрока.')
+            for field in ('steps', 'score'):
+                if type(player.get(field, 0)) is not int:
+                    raise LevelError('Некорректные данные игрока.')
+            player_positions.append(player['pos'])
+        objects = [('игрока', position) for position in player_positions]
+        objects.append(('выхода', data['exit']))
         if data['key'] is not None:
             objects.append(('ключа', data['key']))
         if (type(data['monsters']) is not list
@@ -272,16 +308,15 @@ def validate_level(source):
                 )
             occupied_cells[cell] = name
         # ДОСТИЖИМОСТЬ: до каждого объекта должен быть путь от игрока.
-        distances = get_bfs_distances(maze, Cell(*data['player']))
-        for cell in occupied_cells:
-            if cell not in distances:
-                raise LevelError('Объект недостижим для игрока.')
+        if player_positions:
+            distances = get_bfs_distances(maze, Cell(*player_positions[0]))
+            for cell in occupied_cells:
+                if cell not in distances:
+                    raise LevelError('Объект недостижим для игрока.')
         # ЭФФЕКТЫ: заморозка — целое число >= 0, факел — True или False.
         freeze_turns = data.get('freeze_turns', 0)
         if type(freeze_turns) is not int or freeze_turns < 0:
             raise LevelError('Остаток заморозки должен быть целым и >= 0.')
-        if type(data.get('torch_active', False)) is not bool:
-            raise LevelError('Состояние факела должно быть true или false.')
         return data
     except LevelError:
         raise
@@ -302,13 +337,19 @@ def save_level(level, path):
     try:
         data = {
             'maze': level.maze,
-            'player': level.player,
+            'players': {str(player_id): {
+                'id': player.id, 'nick': player.nick,
+                'pos': player.pos, 'is_connected': player.is_connected,
+                'is_alive': player.is_alive, 'is_ready': player.is_ready,
+                'last_played_round': player.last_played_round,
+                'torch_active': player.torch_active,
+                'steps': player.steps, 'score': player.score,
+            } for player_id, player in level.players.items()},
             'exit': level.exit,
             'key': level.key,
             'monsters': level.monsters,
             'bonuses': list(level.bonuses.items()),
             'freeze_turns': level.freeze_turns,
-            'torch_active': level.torch_active,
         }
         text = json.dumps(data, ensure_ascii=False, indent=2)
         with open(path, 'w', encoding='utf-8') as file:
@@ -335,7 +376,18 @@ def load_level(path):
     try:
         data = validate_level(path)
         maze = data['maze']
-        player = Cell(*data['player'])
+        players = {}
+        for player_id, player in data['players'].items():
+            players[int(player_id)] = Player(
+                id=player['id'], nick=player.get('nick'),
+                pos=Cell(*player['pos']),
+                is_connected=player.get('is_connected', False),
+                is_alive=player.get('is_alive', True),
+                is_ready=player.get('is_ready', False),
+                last_played_round=player.get('last_played_round'),
+                torch_active=player.get('torch_active', False),
+                steps=player.get('steps', 0), score=player.get('score', 0),
+            )
         exit_pos = Cell(*data['exit'])
         key = None
         if data['key'] is not None:
@@ -347,9 +399,9 @@ def load_level(path):
         for position, symbol in data['bonuses']:
             bonuses[Cell(*position)] = symbol
         freeze_turns = data.get('freeze_turns', 0)
-        torch_active = data.get('torch_active', False)
-        return Level(maze, player, exit_pos, key, monsters, bonuses,
-                     freeze_turns, torch_active)
+        return Level(maze=maze, exit=exit_pos, key=key, players=players,
+                     monsters=monsters, bonuses=bonuses,
+                     freeze_turns=freeze_turns)
     except LevelError:
         raise
     except (OSError, KeyError, TypeError, ValueError) as error:
