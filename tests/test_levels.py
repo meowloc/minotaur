@@ -6,7 +6,7 @@ import random
 import pytest
 
 from minotaur import constants
-from minotaur.custom_types import Cell, Level
+from minotaur.custom_types import Cell, Level, Player
 from minotaur.exceptions import LevelError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.levels import (
@@ -21,10 +21,12 @@ def level():
     return Level(
         maze=[list(row) for row in
               ['#######', '#.....#', '#.....#', '#.....#', '#######']],
-        player=Cell(1, 1), exit=Cell(3, 5), key=Cell(1, 5),
+        players={1: Player(id=1, nick='Vladimir', pos=Cell(1, 1),
+                           last_played_round=None, torch_active=True)},
+        exit=Cell(3, 5), key=Cell(1, 5),
         monsters=[('H', Cell(2, 4)), ('W', Cell(3, 1))],
         bonuses={Cell(1, 2): '*', Cell(1, 3): '^', Cell(1, 4): '?'},
-        freeze_turns=2, torch_active=True,
+        freeze_turns=2,
     )
 
 
@@ -36,7 +38,7 @@ def test_round_trip(level, tmp_path):
     assert data['maze'] == level.maze
     loaded = load_level(path)
     assert loaded == level
-    assert type(loaded.player) is Cell
+    assert type(loaded.players[1].pos) is Cell
     assert type(loaded.exit) is Cell
     assert type(loaded.key) is Cell
     assert type(loaded.monsters[0][1]) is Cell
@@ -54,8 +56,8 @@ def test_overwrite(level, tmp_path):
     level.monsters.clear()
     level.bonuses.clear()
     level.freeze_turns = 0
-    level.torch_active = False
-    level.player = Cell(3, 4)
+    level.players[1].torch_active = False
+    level.players[1].pos = Cell(3, 4)
     save_level(level, path)
     assert load_level(path) == level
 
@@ -66,12 +68,20 @@ def test_manual_file_without_effects(tmp_path):
     path.write_text(json.dumps({
         'maze': [list('#####'), list('#...#'), list('#.#.#'),
                  list('#...#'), list('#####')],
-        'player': [1, 1], 'exit': [3, 3], 'key': None,
+        'players': {
+            '1': {
+                'id': 1,
+                'nick': 'Vladimir',
+                'pos': [1, 1],
+                'last_played_round': -1,
+            }
+        },
+        'exit': [3, 3], 'key': None,
         'monsters': [], 'bonuses': [],
     }), encoding='utf-8')
     loaded = load_level(path)
     assert loaded.freeze_turns == 0
-    assert loaded.torch_active is False
+    assert loaded.players[1].torch_active is False
     assert loaded.key is None
 
 
@@ -96,7 +106,7 @@ def test_level_validation_is_separate(level, tmp_path):
     """Сохранение не проверяет уровень, но загрузка отклоняет неверный."""
     path = tmp_path / 'level.json'
     level.maze = []
-    level.player = Cell(-1, -1)
+    level.players[1].pos = Cell(-1, -1)
     level.freeze_turns = -1
     save_level(level, path)
     with pytest.raises(LevelError):
@@ -150,7 +160,12 @@ def test_validate_level(level, tmp_path, from_file):
 ])
 def test_validate_invalid_level(level, tmp_path, from_file, field, value):
     """Одинаковые ошибки отклоняются в объекте и в файле."""
-    setattr(level, field, value)
+    if field == 'player':
+        level.players[1].pos = value
+    elif field == 'torch_active':
+        level.players[1].torch_active = value
+    else:
+        setattr(level, field, value)
     source = level
     if from_file:
         source = tmp_path / 'level.json'
@@ -192,19 +207,19 @@ def test_duplicate_bonuses(level, tmp_path):
 def test_overlapping_objects(level, tmp_path, from_file, case, names):
     """Любая пара объектов отклоняется с указанием обоих типов."""
     if case == 'player_exit':
-        level.exit = level.player
+        level.exit = level.players[1].pos
     if case == 'player_key':
-        level.key = level.player
+        level.key = level.players[1].pos
     if case == 'exit_key':
         level.key = level.exit
     if case in ('player_monster', 'player_monster_bonus'):
-        level.monsters[0] = ('H', level.player)
+        level.monsters[0] = ('H', level.players[1].pos)
     if case == 'exit_monster':
         level.monsters[0] = ('H', level.exit)
     if case == 'key_monster':
         level.monsters[0] = ('H', level.key)
     if case in ('player_bonus', 'player_monster_bonus'):
-        level.bonuses[level.player] = '*'
+        level.bonuses[level.players[1].pos] = '*'
     if case == 'exit_bonus':
         level.bonuses[level.exit] = '*'
     if case == 'key_bonus':
@@ -263,7 +278,15 @@ def test_generation_to_level_file(tmp_path):
     for row in maze:
         for symbol in row:
             assert symbol in (constants.FILE_AIR, constants.FILE_WALL)
-    level = Level(maze, player, exit_pos, None)
+    level = Level(
+        maze=maze,
+        exit=exit_pos,
+        key=None,
+        players={
+            1: Player(id=1, nick='Vladimir', pos=player,
+                      last_played_round=None)
+        },
+    )
     validate_level(level)
     path = tmp_path / 'generated.json'
     save_level(level, path)

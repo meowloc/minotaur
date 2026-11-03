@@ -5,7 +5,7 @@ import random
 import pytest
 
 from minotaur import constants
-from minotaur.custom_types import Cell, Level
+from minotaur.custom_types import Cell, Level, Player
 from minotaur.exceptions import GenerationError, LevelError, PlaceError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.levels import (
@@ -308,14 +308,14 @@ def test_objects_on_generated_maps(level_num):
     """Расстановка соблюдает расстояния, числа и доступность объектов."""
     for seed in range(30):
         level = generate_level(level_num, random.Random(seed))
-        distances = get_bfs_distances(level.maze, level.player)
-        path = get_shortest_path(level.maze, level.player, level.exit)
+        distances = get_bfs_distances(level.maze, level.players[1].pos)
+        path = get_shortest_path(level.maze, level.players[1].pos, level.exit)
         hunters, wanderers, bonuses, _ = constants.LEVEL_CONTENTS[level_num]
         symbols = [symbol for symbol, cell in level.monsters]
         assert symbols.count(constants.HUNTER) == hunters
         assert symbols.count(constants.WANDERER) == wanderers
         assert len(level.bonuses) == bonuses
-        positions = [level.player, level.exit, level.key]
+        positions = [level.players[1].pos, level.exit, level.key]
         for symbol, cell in level.monsters:
             assert distances[cell] >= constants.MONSTER_MIN_SPAWN_DISTANCE
             assert cell not in path
@@ -335,7 +335,16 @@ def test_objects_seed_and_unchanged_map():
     first = generate_level(0, random.Random(2))
     assert first == generate_level(0, random.Random(2))
     before = [row[:] for row in first.maze]
-    level = Level(first.maze, first.player, first.exit, None)
+    level = Level(
+        maze=first.maze,
+        exit=first.exit,
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=first.players[1].pos,
+            last_played_round=None)
+        })
     result = place_objects(level, 0, random.Random(5))
     assert result is level
     assert result.maze is first.maze
@@ -349,7 +358,16 @@ def test_objects_not_enough_monster_cells():
         '###########', '###########',
     ]]
     before = [row[:] for row in maze]
-    level = Level(maze, Cell(1, 1), Cell(1, 9), None)
+    level = Level(
+        maze=maze,
+        exit=Cell(1, 9),
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=Cell(1, 1),
+            last_played_round=None)
+        })
     with pytest.raises(PlaceError, match='для монстров'):
         place_objects(level, 0, random.Random(0))
     assert maze == before
@@ -364,7 +382,16 @@ def test_bonus_behind_monster(monkeypatch):
     monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(1, 0, 7, 0)])
     # До клетки (1, 8) ровно 7 шагов, она уже подходит для монстра.
     monkeypatch.setattr(constants, 'MONSTER_MIN_SPAWN_DISTANCE', 7)
-    level = Level(maze, Cell(1, 1), Cell(1, 3), None)
+    level = Level(
+        maze=maze,
+        exit=Cell(1, 3),
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=Cell(1, 1),
+            last_played_round=None)
+        })
     place_objects(level, 0, random.Random(1))
     assert level.monsters == [(constants.HUNTER, Cell(1, 8))]
     assert len(level.bonuses) == 7
@@ -376,7 +403,16 @@ def test_bonus_behind_monster(monkeypatch):
 def test_objects_invalid_level(level_num):
     """Неверный номер не используется как индекс настроек."""
     with pytest.raises(PlaceError, match='номер уровня'):
-        place_objects(Level([], Cell(1, 1), Cell(3, 3), None), level_num)
+        place_objects(Level(
+            maze=[],
+            exit=Cell(3, 3),
+            key=None,
+            players={1: Player(
+                id=1,
+                nick=None,
+                pos=Cell(1, 1),
+                last_played_round=None)
+            }), level_num)
     with pytest.raises(GenerationError):
         generate_level(level_num)
 
@@ -384,9 +420,27 @@ def test_objects_invalid_level(level_num):
 def test_objects_invalid_map_and_positions():
     """Ошибки карты и совпадение старта с выходом отклоняются."""
     with pytest.raises(LevelError):
-        place_objects(Level([], Cell(1, 1), Cell(3, 3), None), 0)
+        place_objects(Level(
+            maze=[],
+            exit=Cell(3, 3),
+            key=None,
+            players={1: Player(
+                id=1,
+                nick=None,
+                pos=Cell(1, 1),
+                last_played_round=None)
+            }), 0)
     level = generate_level(0, random.Random(2))
-    empty = Level(level.maze, level.player, level.player, None)
+    empty = Level(
+        maze=level.maze,
+        exit=level.players[1].pos,
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=level.players[1].pos,
+            last_played_round=None)
+        })
     message = 'Координаты выхода и игрока совпадают'
     with pytest.raises(LevelError, match=message):
         place_objects(empty, 0)
@@ -413,12 +467,30 @@ def test_objects_unreachable_air(monkeypatch):
         '#######', '#...#.#', '#######', '#.#####', '#######',
     ]]
     monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(0, 0, 0, 0)])
-    level = Level(maze, Cell(1, 1), Cell(1, 3), None)
+    level = Level(
+        maze=maze,
+        exit=Cell(1, 3),
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=Cell(1, 1),
+            last_played_round=None)
+        })
     place_objects(level, 0)
     assert level.key == Cell(1, 2)
     monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(0, 0, 1, 0)])
     with pytest.raises(PlaceError, match='для всех объектов'):
-        place_objects(Level(maze, Cell(1, 1), Cell(1, 3), None), 0)
+        place_objects(Level(
+            maze=maze,
+            exit=Cell(1, 3),
+            key=None,
+            players={1: Player(
+                id=1,
+                nick=None,
+                pos=Cell(1, 1),
+                last_played_round=None)
+            }), 0)
 
 
 def test_key_can_be_reached_through_exit(monkeypatch):
@@ -427,7 +499,16 @@ def test_key_can_be_reached_through_exit(monkeypatch):
         '#####', '#...#', '#####', '#####', '#####',
     ]]
     monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(0, 0, 0, 0)])
-    level = Level(maze, Cell(1, 1), Cell(1, 2), None)
+    level = Level(
+        maze=maze,
+        exit=Cell(1, 2),
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=Cell(1, 1),
+            last_played_round=None)
+        })
     place_objects(level, 0)
     assert level.key == Cell(1, 3)
     assert level.maze[1][2] == constants.FILE_AIR
@@ -441,7 +522,16 @@ def test_key_preserves_only_monster_cell(monkeypatch):
     ]]
     monkeypatch.setattr(constants, 'LEVEL_CONTENTS', [(1, 0, 0, 0)])
     monkeypatch.setattr(constants, 'MONSTER_MIN_SPAWN_DISTANCE', 8)
-    level = Level(maze, Cell(1, 1), Cell(3, 1), None)
+    level = Level(
+        maze=maze,
+        exit=Cell(3, 1),
+        key=None,
+        players={1: Player(
+            id=1,
+            nick=None,
+            pos=Cell(1, 1),
+            last_played_round=None)
+        })
     place_objects(level, 0, random.Random(0))
     assert level.monsters == [(constants.HUNTER, Cell(1, 9))]
     assert level.key != Cell(1, 9)
