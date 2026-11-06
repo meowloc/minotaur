@@ -21,7 +21,7 @@ def level():
     return Level(
         maze=[list(row) for row in
               ['#######', '#.....#', '#.....#', '#.....#', '#######']],
-        players={1: Player(id=1, nick='Vladimir', pos=Cell(1, 1),
+        players={1: Player(nick='Vladimir', pos=Cell(1, 1),
                            last_played_round=None, torch_active=True)},
         exit=Cell(3, 5), key=Cell(1, 5),
         monsters=[('H', Cell(2, 4)), ('W', Cell(3, 1))],
@@ -70,7 +70,6 @@ def test_manual_file_without_effects(tmp_path):
                  list('#...#'), list('#####')],
         'players': {
             '1': {
-                'id': 1,
                 'nick': 'Vladimir',
                 'pos': [1, 1],
                 'last_played_round': -1,
@@ -283,7 +282,7 @@ def test_generation_to_level_file(tmp_path):
         exit=exit_pos,
         key=None,
         players={
-            1: Player(id=1, nick='Vladimir', pos=player,
+            1: Player(nick='Vladimir', pos=player,
                       last_played_round=None)
         },
     )
@@ -291,3 +290,40 @@ def test_generation_to_level_file(tmp_path):
     path = tmp_path / 'generated.json'
     save_level(level, path)
     assert load_level(path) == level
+
+
+@pytest.mark.parametrize('from_file', [False, True])
+def test_compass_is_saved_per_player(level, tmp_path, from_file):
+    """Компас хранится у каждого игрока и проверяется как булево."""
+    path = tmp_path / 'level.json'
+    level.players[2] = Player(pos=Cell(2, 2), compass_active=True)
+    save_level(level, path)
+    loaded = load_level(path)
+    assert loaded.players[1].compass_active is False
+    assert loaded.players[2].compass_active is True
+    level.players[2].compass_active = 1
+    source = level
+    if from_file:
+        source = tmp_path / 'bad.json'
+        save_level(level, source)
+    with pytest.raises(LevelError, match='состояние игрока'):
+        validate_level(source)
+
+
+def test_player_id_is_dict_key(level, tmp_path):
+    """Идентификатор игрока задаётся только ключом словаря players."""
+    path = tmp_path / 'level.json'
+    save_level(level, path)
+    data = json.loads(path.read_text(encoding='utf-8'))
+    assert 'id' not in data['players']['1']
+    data['players']['abc'] = data['players'].pop('1')
+    path.write_text(json.dumps(data), encoding='utf-8')
+    with pytest.raises(LevelError, match='идентификатор'):
+        load_level(path)
+
+
+def test_is_key_taken(level):
+    """Ключ общий: после подбора любым игроком он поднят для всех."""
+    assert level.is_key_taken is False
+    level.key = None
+    assert level.is_key_taken is True

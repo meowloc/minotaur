@@ -82,7 +82,7 @@ def place_objects(level: Level, level_num, rng=None):
     Returns:
         Тот же Level с расставленными объектами после проверки.
         Монстры стоят не ближе MONSTER_MIN_SPAWN_DISTANCE шагов от
-        игрока и вне одного кратчайшего пути от игрока к выходу.
+        каждого игрока и вне кратчайших путей игроков к выходу.
         Ключ и бонусы доступны по проходам. Выход и монстры
         при поиске пути не считаются препятствиями.
         Все объекты занимают разные клетки.
@@ -106,10 +106,15 @@ def place_objects(level: Level, level_num, rng=None):
     hunters, wanderers, bonus_count, _ = constants.LEVEL_CONTENTS[level_num]
     if not level.players:
         raise PlaceError("На уровне нет игроков.")
-    player_positions = {player.pos for player in level.players.values()}
-    player = next(iter(level.players.values())).pos
-    distances = get_bfs_distances(level.maze, player)
-    exit_path = get_shortest_path(level.maze, player, level.exit)
+    player_positions = [player.pos for player in level.players.values()]
+    # Расстояния и пути к выходу считаем от каждого игрока, чтобы монстр
+    # не появился рядом со вторым игроком или на его пути к выходу.
+    player_distances = [get_bfs_distances(level.maze, position)
+                        for position in player_positions]
+    distances = player_distances[0]
+    exit_paths = set()
+    for position in player_positions:
+        exit_paths.update(get_shortest_path(level.maze, position, level.exit))
 
     key_cells = []
     monster_cells = []
@@ -119,8 +124,10 @@ def place_objects(level: Level, level_num, rng=None):
             continue
         free_cells.append(cell)
         key_cells.append(cell)
-        if (distances[cell] >= constants.MONSTER_MIN_SPAWN_DISTANCE
-                and cell not in exit_path):
+        nearest_player = min(player_distance[cell]
+                             for player_distance in player_distances)
+        if (nearest_player >= constants.MONSTER_MIN_SPAWN_DISTANCE
+                and cell not in exit_paths):
             monster_cells.append(cell)
 
     monster_count = hunters + wanderers
@@ -178,7 +185,7 @@ def generate_level(level_num, rng=None):
     making_labyrinth(maze, player, exit_pos, rng)
     add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
     level = Level(maze=maze, exit=exit_pos, key=None,
-                  players={1: Player(id=1, nick=None, pos=player,
+                  players={1: Player(nick=None, pos=player,
                                      last_played_round=None)})
     return place_objects(level, level_num, rng)
 
@@ -202,7 +209,7 @@ def validate_level(source):
             неизвестен тип монстра или бонуса; любые два объекта
             занимают одну клетку; объект недостижим для игрока;
             остаток заморозки не является целым неотрицательным числом
-            или состояние факела не является булевым значением.
+            или состояние факела или компаса не является булевым значением.
     """
     try:
         # ДАННЫЕ: получаем поля уровня из объекта Level или JSON-файла.
@@ -210,11 +217,12 @@ def validate_level(source):
             data = {
                 'maze': source.maze,
                 'players': {str(player_id): {
-                    'id': player.id, 'nick': player.nick,
+                    'nick': player.nick,
                     'pos': player.pos, 'is_connected': player.is_connected,
                     'is_alive': player.is_alive, 'is_ready': player.is_ready,
                     'last_played_round': player.last_played_round,
                     'torch_active': player.torch_active,
+                    'compass_active': player.compass_active,
                     'steps': player.steps, 'score': player.score,
                 } for player_id, player in source.players.items()},
                 'exit': source.exit,
@@ -254,14 +262,13 @@ def validate_level(source):
         for player_id, player in data['players'].items():
             if type(player) is not dict:
                 raise LevelError('Некорректные данные игрока.')
-            if type(player.get('id')) is not int\
-                    or str(player['id']) != str(player_id):
+            if not str(player_id).isdigit():
                 raise LevelError('Некорректный идентификатор игрока.')
             if player.get('nick') is not None\
                     and type(player['nick']) is not str:
                 raise LevelError('Некорректный никнейм игрока.')
-            for field in ('is_connected', 'is_alive',
-                          'is_ready', 'torch_active'):
+            for field in ('is_connected', 'is_alive', 'is_ready',
+                          'torch_active', 'compass_active'):
                 if type(player.get(field, False)) is not bool:
                     raise LevelError('Некорректное состояние игрока.')
             if (player.get('last_played_round') is not None
@@ -338,11 +345,12 @@ def save_level(level, path):
         data = {
             'maze': level.maze,
             'players': {str(player_id): {
-                'id': player.id, 'nick': player.nick,
+                'nick': player.nick,
                 'pos': player.pos, 'is_connected': player.is_connected,
                 'is_alive': player.is_alive, 'is_ready': player.is_ready,
                 'last_played_round': player.last_played_round,
                 'torch_active': player.torch_active,
+                'compass_active': player.compass_active,
                 'steps': player.steps, 'score': player.score,
             } for player_id, player in level.players.items()},
             'exit': level.exit,
@@ -379,13 +387,14 @@ def load_level(path):
         players = {}
         for player_id, player in data['players'].items():
             players[int(player_id)] = Player(
-                id=player['id'], nick=player.get('nick'),
+                nick=player.get('nick'),
                 pos=Cell(*player['pos']),
                 is_connected=player.get('is_connected', False),
                 is_alive=player.get('is_alive', True),
                 is_ready=player.get('is_ready', False),
                 last_played_round=player.get('last_played_round'),
                 torch_active=player.get('torch_active', False),
+                compass_active=player.get('compass_active', False),
                 steps=player.get('steps', 0), score=player.get('score', 0),
             )
         exit_pos = Cell(*data['exit'])

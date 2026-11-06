@@ -340,7 +340,6 @@ def test_objects_seed_and_unchanged_map():
         exit=first.exit,
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=first.players[1].pos,
             last_played_round=None)
@@ -363,7 +362,6 @@ def test_objects_not_enough_monster_cells():
         exit=Cell(1, 9),
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -387,7 +385,6 @@ def test_bonus_behind_monster(monkeypatch):
         exit=Cell(1, 3),
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -408,7 +405,6 @@ def test_objects_invalid_level(level_num):
             exit=Cell(3, 3),
             key=None,
             players={1: Player(
-                id=1,
                 nick=None,
                 pos=Cell(1, 1),
                 last_played_round=None)
@@ -425,7 +421,6 @@ def test_objects_invalid_map_and_positions():
             exit=Cell(3, 3),
             key=None,
             players={1: Player(
-                id=1,
                 nick=None,
                 pos=Cell(1, 1),
                 last_played_round=None)
@@ -436,7 +431,6 @@ def test_objects_invalid_map_and_positions():
         exit=level.players[1].pos,
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=level.players[1].pos,
             last_played_round=None)
@@ -472,7 +466,6 @@ def test_objects_unreachable_air(monkeypatch):
         exit=Cell(1, 3),
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -486,7 +479,6 @@ def test_objects_unreachable_air(monkeypatch):
             exit=Cell(1, 3),
             key=None,
             players={1: Player(
-                id=1,
                 nick=None,
                 pos=Cell(1, 1),
                 last_played_round=None)
@@ -504,7 +496,6 @@ def test_key_can_be_reached_through_exit(monkeypatch):
         exit=Cell(1, 2),
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -527,7 +518,6 @@ def test_key_preserves_only_monster_cell(monkeypatch):
         exit=Cell(3, 1),
         key=None,
         players={1: Player(
-            id=1,
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -535,3 +525,23 @@ def test_key_preserves_only_monster_cell(monkeypatch):
     place_objects(level, 0, random.Random(0))
     assert level.monsters == [(constants.HUNTER, Cell(1, 9))]
     assert level.key != Cell(1, 9)
+
+
+@pytest.mark.parametrize('level_num', range(2, constants.MAX_LEVEL))
+def test_objects_with_two_players(level_num):
+    """Монстры далеко от каждого игрока и вне путей каждого к выходу."""
+    for seed in range(20):
+        base = generate_level(level_num, random.Random(seed))
+        first = base.players[1].pos
+        cells = get_bfs_distances(base.maze, first)
+        second = random.Random(seed).choice(
+            [cell for cell in cells if cell not in (first, base.exit)])
+        level = Level(maze=base.maze, exit=base.exit, key=None,
+                      players={1: Player(pos=first), 2: Player(pos=second)})
+        place_objects(level, level_num, random.Random(seed))
+        for position in (first, second):
+            distances = get_bfs_distances(level.maze, position)
+            path = get_shortest_path(level.maze, position, level.exit)
+            for symbol, cell in level.monsters:
+                assert distances[cell] >= constants.MONSTER_MIN_SPAWN_DISTANCE
+                assert cell not in path
