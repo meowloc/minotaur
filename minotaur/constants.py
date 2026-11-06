@@ -1,18 +1,52 @@
-# level sizes
+"""Константы игры: размеры уровней, символы, настройки монстров и бонусов.
+
+Attributes:
+    LEVEL_SIZES: Размеры карт уровней в виде пар (высота, ширина).
+    LEVEL_CONTENTS: Наполнение уровней в виде кортежей (охотники,
+        бродяги, бонусы, дополнительно сломанные стены).
+    MAX_LEVEL: Количество уровней; номера уровней от 0 до MAX_LEVEL - 1.
+    FILE_AIR: Символ прохода в файле уровня.
+    FILE_WALL: Символ стены в файле уровня.
+    PLAYER: Символ игрока на экране.
+    KEY: Символ ключа.
+    EXIT: Символ выхода.
+    HUNTER: Символ охотника.
+    WANDERER: Символ бродяги.
+    FREEZE: Символ бонуса заморозки.
+    TORCH: Символ бонуса факела.
+    COMPASS: Символ бонуса компаса.
+    WALL_VERTICAL: Символ вертикальной стены на экране.
+    WALL_HORIZONTAL: Символ горизонтальной стены на экране.
+    WALL_CORNER: Символ угла стены на экране.
+    DIRECTIONS: Направления движения и смещения (строка, столбец).
+    MONSTER_MIN_SPAWN_DISTANCE: Минимальное расстояние в шагах
+        от игрока до монстра при расстановке.
+    HUNTER_STEP_RATE: Охотник ходит раз в столько ходов.
+    WANDERER_STEP_RATE: Бродяга ходит раз в столько ходов.
+    WANDERER_CHASE_BFS_STEPS: Расстояние в шагах, с которого бродяга
+        замечает игрока и начинает погоню.
+    BONUS_FREEZE_STEPS: Сколько ходов монстры стоят после заморозки.
+    BONUS_COMPASS_RANGE: Сколько клеток пути показывает компас.
+    BONUS_TORCH_RADIUS: На сколько клеток факел увеличивает обзор.
+    VIEW_RADIUS: Радиус обзора игрока в тумане войны.
+    SCORE_PER_LEVEL: Очки за прохождение уровня.
+    SCORE_SPEED_BASE: Базовое число очков за скорость прохождения.
+    SCORE_PER_BONUS: Очки за подобранный бонус.
+    KEY_BINDINGS: Клавиши управления и соответствующие действия.
+    LEGEND: Легенда для экрана помощи: символ, название и описание.
+"""
+
 LEVEL_SIZES = [(7, 9), (9, 11), (11, 13), (13, 15),
                (15, 17), (19, 21), (21, 23)]
 
-# hunters, wanderers, bonuses, extra broken walls
 LEVEL_CONTENTS = [(0, 1, 1, 2), (1, 0, 1, 3), (1, 1, 2, 4), (1, 2, 2, 6),
                   (2, 1, 3, 8), (2, 2, 3, 10), (3, 2, 4, 12)]
 
-MAX_LEVEL = len(LEVEL_SIZES) - 1
+MAX_LEVEL = len(LEVEL_SIZES)
 
-# level files
 FILE_AIR = "."
 FILE_WALL = "#"
 
-# objects
 PLAYER = "P"
 KEY = "K"
 EXIT = "E"
@@ -22,7 +56,6 @@ FREEZE = "*"
 TORCH = "^"
 COMPASS = "?"
 
-# wall types
 WALL_VERTICAL = "|"
 WALL_HORIZONTAL = "-"
 WALL_CORNER = "+"
@@ -34,20 +67,16 @@ DIRECTIONS = {
     "right": (0, 1),
 }
 
-# generation
 MONSTER_MIN_SPAWN_DISTANCE = 7
 
-# monsters
 HUNTER_STEP_RATE = 1
 WANDERER_STEP_RATE = 1
 WANDERER_CHASE_BFS_STEPS = 5
 
-# bonuses
 BONUS_FREEZE_STEPS = 3
 BONUS_COMPASS_RANGE = 8
 BONUS_TORCH_RADIUS = 2
 
-# fog of war
 VIEW_RADIUS = 5
 
 SCORE_PER_LEVEL = 100
@@ -99,11 +128,12 @@ LEGEND = [
     (KEY, "Key", "Required to open the exit"),
     (EXIT, "Exit", "Opens only if the key has been picked up"),
     (HUNTER, "Hunter",
-     "Follows you by the shortest path, one step every "
-     f"{_every(HUNTER_STEP_RATE)}"),
+     "Cuts you off on the way to the key, then follows you "
+     f"by the shortest path, one step every {_every(HUNTER_STEP_RATE)}"),
     (WANDERER, "Wanderer",
      f"Moves every {_every(WANDERER_STEP_RATE)}, wanders randomly, "
-     f"chases you within {_plural(WANDERER_CHASE_BFS_STEPS, 'step')}"),
+     f"chases you within {_plural(WANDERER_CHASE_BFS_STEPS, 'step')} "
+     "and checks where it saw you last"),
     (FREEZE, "Freeze",
      f"Monsters stand still for {_plural(BONUS_FREEZE_STEPS, 'turn')}"),
     (TORCH, "Torch",
