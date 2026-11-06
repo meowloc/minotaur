@@ -1,3 +1,5 @@
+"""Поиск соседних клеток, расстояний и кратчайших путей в лабиринте."""
+
 from collections import deque
 from minotaur.exceptions import LevelError
 from minotaur.custom_types import Maze, Cell

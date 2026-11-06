@@ -1,3 +1,5 @@
+"""Монстры лабиринта: охотник и бродяга."""
+
 import random
 from dataclasses import dataclass
 from typing import ClassVar
@@ -12,7 +14,14 @@ from minotaur.pathfinding import (
 
 
 class Mode(Enum):
-    """Режимы монстра."""
+    """Режимы поведения бродяги.
+
+    Attributes:
+        CHASE: Погоня за игроком в зоне видимости.
+        SEARCH: Поиск игрока в клетке, где его видели последний раз.
+        WANDER: Случайное блуждание.
+    """
+
     CHASE = auto()
     SEARCH = auto()
     WANDER = auto()
@@ -124,7 +133,13 @@ class Monster:
 
 @dataclass
 class Hunter(Monster):
-    """Монстр, который идёт к ближайшему игроку по кратчайшему пути."""
+    """Монстр, который перехватывает или преследует ближайшего игрока.
+
+    Attributes:
+        symbol: Символ охотника на карте, ``HUNTER``.
+        step_rate: Охотник ходит раз в ``HUNTER_STEP_RATE`` ходов.
+        turns_until_move: Количество ходов, оставшихся до хода охотника.
+    """
 
     symbol: ClassVar[str] = constants.HUNTER
     step_rate: ClassVar[int] = constants.HUNTER_STEP_RATE
@@ -210,6 +225,11 @@ class Wanderer(Monster):
     """Монстр, который бродит и преследует ближайшего игрока.
 
     Attributes:
+        symbol: Символ бродяги на карте, ``WANDERER``.
+        step_rate: Бродяга ходит раз в ``WANDERER_STEP_RATE`` ходов.
+        turns_until_move: Количество ходов, оставшихся до хода бродяги.
+        last_seen: Клетка, где бродяга последний раз видел игрока,
+            или ``None``, если он никого не ищет.
         previous: Клетка, с которой бродяга пришёл, или ``None``.
         visibility_range: Расстояние до игрока в шагах, в пределах
             которого бродяга начинает погоню.
@@ -222,7 +242,7 @@ class Wanderer(Monster):
     previous: custom_types.Cell | None = None
     visibility_range: int = constants.WANDERER_CHASE_BFS_STEPS
 
-    def _get_mode(self, path: list[custom_types.Cell] | None):
+    def _get_mode(self, path: list[custom_types.Cell] | None) -> Mode:
         """Определяет режим монстра.
 
         Args:
@@ -247,9 +267,11 @@ class Wanderer(Monster):
         rng: random.Random,
         key: custom_types.Cell | None = None,
     ) -> None:
-        """Гонится за ближайшим игроком, иначе делает случайный шаг.
+        """Гонится за игроком, ищет его или делает случайный шаг.
 
-        Случайный шаг не ведёт назад, если только бродяга не в тупике.
+        Режим выбирает ``_get_mode``. В погоне бродяга запоминает
+        клетку игрока и, потеряв его из виду, идёт к ней. Случайный
+        шаг не ведёт назад, если только бродяга не в тупике.
 
         Args:
             maze: Карта лабиринта.

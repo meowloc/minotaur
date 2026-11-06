@@ -1,3 +1,9 @@
+"""Типы данных уровня: клетка, карта, игрок и уровень.
+
+Attributes:
+    Maze: Карта лабиринта, список строк из символов стен и проходов.
+"""
+
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -79,5 +85,10 @@ class Level:
 
     @property
     def is_key_taken(self) -> bool:
-        """Поднят ли ключ кем-то из игроков (общее состояние уровня)."""
+        """Поднят ли ключ кем-то из игроков (общее состояние уровня).
+
+        Returns:
+            ``True``, если ключ уже поднят (``key`` равен ``None``),
+            иначе ``False``.
+        """
         return self.key is None
