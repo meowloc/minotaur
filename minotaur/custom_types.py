@@ -20,8 +20,10 @@ class Cell(NamedTuple):
 class Player:
     """Класс игрока, используемый в классе Level.
 
+    Идентификатор игрока хранится только как ключ словаря
+    ``Level.players``.
+
     Attributes:
-        id: Уникальный идентификатор игрока.
         pos: Текущая позиция игрока в лабиринте.
         nick: Никнейм игрока, ``None``, если не задан.
         last_played_round: Номер последнего раунда, в котором
@@ -31,11 +33,12 @@ class Player:
         is_ready: Готов ли игрок к началу раунда.
         torch_active: Действует ли факел у конкретного игрока
             до конца уровня.
+        compass_active: Действует ли компас у конкретного игрока
+            до конца уровня.
         steps: Количество совершённых игроком шагов.
         score: Количество набранных игроком очков.
     """
 
-    id: int
     pos: Cell
     nick: str | None = None
 
@@ -45,6 +48,7 @@ class Player:
     is_ready: bool = False
 
     torch_active: bool = False
+    compass_active: bool = False
 
     steps: int = 0
     score: int = 0
@@ -72,3 +76,8 @@ class Level:
     monsters: list[tuple[str, Cell]] = field(default_factory=list)
     bonuses: dict[Cell, str] = field(default_factory=dict)
     freeze_turns: int = 0
+
+    @property
+    def is_key_taken(self) -> bool:
+        """Поднят ли ключ кем-то из игроков (общее состояние уровня)."""
+        return self.key is None
