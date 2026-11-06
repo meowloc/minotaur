@@ -55,20 +55,30 @@ def test_tick_skips_move(turns_until_move, is_freeze_active):
     assert hunter.position == Cell(1, 3)
 
 
-@pytest.mark.parametrize("maze, start, player, key, expected", [
-    (mock_maze_5_rows_5_cols, Cell(1, 3), Cell(3, 1), None, Cell(1, 2)),
-    (mock_maze_5_rows_5_cols, Cell(2, 2), Cell(2, 2), None, Cell(2, 2)),
-    (mock_loop, Cell(3, 5), Cell(1, 1), Cell(1, 9), Cell(3, 6)),
-    (mock_loop, Cell(1, 8), Cell(1, 1), Cell(1, 9), Cell(1, 7)),
-    (mock_loop, Cell(3, 5), Cell(1, 1), Cell(1, 3), Cell(3, 4)),
-    (mock_loop, Cell(3, 5), Cell(1, 1), None, Cell(3, 4)),
+@pytest.mark.parametrize("maze, start, player, expected", [
+    (mock_maze_5_rows_5_cols, Cell(1, 3), Cell(3, 1), Cell(1, 2)),
+    (mock_maze_5_rows_5_cols, Cell(2, 2), Cell(2, 2), Cell(2, 2)),
 ])
-def test_hunter_step(maze, start, player, key, expected):
-    """Охотник идёт к игроку или стоит на его клетке; пока ключ не
-    поднят, идёт наперерез игроку к ключу, если успевает раньше."""
+def test_hunter_chases_player(maze, start, player, expected):
+    """После подбора ключа охотник идёт к игроку по кратчайшему пути
+    или стоит на его клетке."""
     hunter = Hunter(start)
     hunter.tick(maze, make_players(player), 0, random.Random(0),
-                False, key)
+                False, None)
+    assert hunter.position == expected
+
+
+@pytest.mark.parametrize("start, key, expected", [
+    (Cell(3, 5), Cell(1, 9), Cell(3, 6)),
+    (Cell(1, 8), Cell(1, 9), Cell(1, 7)),
+    (Cell(3, 5), Cell(1, 3), Cell(3, 4)),
+])
+def test_hunter_intercepts_on_way_to_key(start, key, expected):
+    """Пока ключ не поднят, охотник идёт наперерез игроку к ключу,
+    а если не успевает раньше игрока, идёт к самому игроку."""
+    hunter = Hunter(start)
+    hunter.tick(mock_loop, make_players(Cell(1, 1)), 0,
+                random.Random(0), False, key)
     assert hunter.position == expected
 
 
