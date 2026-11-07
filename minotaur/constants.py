@@ -8,6 +8,7 @@ Attributes:
     FILE_AIR: Символ прохода в файле уровня.
     FILE_WALL: Символ стены в файле уровня.
     PLAYER: Символ игрока на экране.
+    ALLY: Символ второго игрока на экране (в онлайн-игре).
     KEY: Символ ключа.
     EXIT: Символ выхода.
     HUNTER: Символ охотника.
@@ -35,6 +36,7 @@ Attributes:
     SCORE_SPEED_BASE: Базовое число очков за скорость прохождения.
     SCORE_PER_BONUS: Очки за подобранный бонус.
     KEY_BINDINGS: Клавиши управления и соответствующие действия.
+    PALETTE: Палитра цветом, используемая для отображения контента на экране.
     LEGEND: Легенда для экрана помощи: символ, название и описание.
 """
 
@@ -50,6 +52,7 @@ FILE_AIR = "."
 FILE_WALL = "#"
 
 PLAYER = "P"
+ALLY = "P"
 KEY = "K"
 EXIT = "E"
 HUNTER = "H"
@@ -95,6 +98,26 @@ KEY_BINDINGS = {
     " ": "wait",
     "h": "help",
     "p": "pause",
+}
+
+PALETTE = {
+    "wall": "#5b6478",
+    "floor": "#3d4558",
+    "seen": "#2c3242",
+    "player": "#4d8dff",
+    "ally": "#a3e635",
+    "key": "#ffd23f",
+    "exit": "#3ccf7a",
+    "exit_locked": "#6b7a72",
+    "hunter": "#ff5a5a",
+    "wanderer": "#ff9f43",
+    "minotaur": "#b56bff",
+    "jump": "#ff4fa0",
+    "freeze": "#6fd3ff",
+    "torch": "#fff3c4",
+    "compass": "#5eead4",
+    "text": "#c9d1e0",
+    "muted": "#7b8496",
 }
 
 
