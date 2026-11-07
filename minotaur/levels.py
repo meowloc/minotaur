@@ -10,6 +10,21 @@ from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.pathfinding import get_bfs_distances, get_shortest_path
 
 
+def is_player_id(value):
+    """Проверить, что идентификатор игрока — строка из цифр нужной длины.
+
+    Args:
+        value: Ключ словаря игроков.
+
+    Returns:
+        ``True``, если это строка ровно из ``PLAYER_ID_LENGTH`` цифр 0–9,
+        например ``"000001"``, иначе ``False``.
+    """
+    return (type(value) is str
+            and len(value) == constants.PLAYER_ID_LENGTH
+            and value.isascii() and value.isdigit())
+
+
 def place_exit_and_player(map_matrix, rng=None):
     """Разместить выход и наиболее удалённого игрока вдоль внешних стен.
 
@@ -185,8 +200,8 @@ def generate_level(level_num, rng=None):
     making_labyrinth(maze, player, exit_pos, rng)
     add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
     level = Level(maze=maze, exit=exit_pos, key=None,
-                  players={1: Player(nick=None, pos=player,
-                                     last_played_round=None)})
+                  players={"000001": Player(nick=None, pos=player,
+                                            last_played_round=None)})
     return place_objects(level, level_num, rng)
 
 
@@ -206,6 +221,7 @@ def validate_level(source):
             карта меньше 5x5, строки разной длины, есть посторонние символы
             или проходы на внешней границе; координаты не являются парой
             целых чисел, лежат в стене или вне внутренней части карты;
+            идентификатор игрока не строка из ``PLAYER_ID_LENGTH`` цифр;
             неизвестен тип монстра или бонуса; любые два объекта
             занимают одну клетку; объект недостижим для игрока;
             остаток заморозки не является целым неотрицательным числом
@@ -216,7 +232,7 @@ def validate_level(source):
         if type(source) is Level:
             data = {
                 'maze': source.maze,
-                'players': {str(player_id): {
+                'players': {player_id: {
                     'nick': player.nick,
                     'pos': player.pos, 'is_connected': player.is_connected,
                     'is_alive': player.is_alive, 'is_ready': player.is_ready,
@@ -262,7 +278,7 @@ def validate_level(source):
         for player_id, player in data['players'].items():
             if type(player) is not dict:
                 raise LevelError('Некорректные данные игрока.')
-            if not str(player_id).isdigit():
+            if not is_player_id(player_id):
                 raise LevelError('Некорректный идентификатор игрока.')
             if player.get('nick') is not None\
                     and type(player['nick']) is not str:
@@ -344,7 +360,7 @@ def save_level(level, path):
     try:
         data = {
             'maze': level.maze,
-            'players': {str(player_id): {
+            'players': {player_id: {
                 'nick': player.nick,
                 'pos': player.pos, 'is_connected': player.is_connected,
                 'is_alive': player.is_alive, 'is_ready': player.is_ready,
@@ -386,7 +402,7 @@ def load_level(path):
         maze = data['maze']
         players = {}
         for player_id, player in data['players'].items():
-            players[int(player_id)] = Player(
+            players[player_id] = Player(
                 nick=player.get('nick'),
                 pos=Cell(*player['pos']),
                 is_connected=player.get('is_connected', False),

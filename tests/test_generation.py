@@ -308,14 +308,15 @@ def test_objects_on_generated_maps(level_num):
     """Расстановка соблюдает расстояния, числа и доступность объектов."""
     for seed in range(30):
         level = generate_level(level_num, random.Random(seed))
-        distances = get_bfs_distances(level.maze, level.players[1].pos)
-        path = get_shortest_path(level.maze, level.players[1].pos, level.exit)
+        start = level.players['000001'].pos
+        distances = get_bfs_distances(level.maze, start)
+        path = get_shortest_path(level.maze, start, level.exit)
         hunters, wanderers, bonuses, _ = constants.LEVEL_CONTENTS[level_num]
         symbols = [symbol for symbol, cell in level.monsters]
         assert symbols.count(constants.HUNTER) == hunters
         assert symbols.count(constants.WANDERER) == wanderers
         assert len(level.bonuses) == bonuses
-        positions = [level.players[1].pos, level.exit, level.key]
+        positions = [level.players['000001'].pos, level.exit, level.key]
         for symbol, cell in level.monsters:
             assert distances[cell] >= constants.MONSTER_MIN_SPAWN_DISTANCE
             assert cell not in path
@@ -339,9 +340,9 @@ def test_objects_seed_and_unchanged_map():
         maze=first.maze,
         exit=first.exit,
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
-            pos=first.players[1].pos,
+            pos=first.players['000001'].pos,
             last_played_round=None)
         })
     result = place_objects(level, 0, random.Random(5))
@@ -361,7 +362,7 @@ def test_objects_not_enough_monster_cells():
         maze=maze,
         exit=Cell(1, 9),
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -384,7 +385,7 @@ def test_bonus_behind_monster(monkeypatch):
         maze=maze,
         exit=Cell(1, 3),
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -404,7 +405,7 @@ def test_objects_invalid_level(level_num):
             maze=[],
             exit=Cell(3, 3),
             key=None,
-            players={1: Player(
+            players={"000001": Player(
                 nick=None,
                 pos=Cell(1, 1),
                 last_played_round=None)
@@ -420,7 +421,7 @@ def test_objects_invalid_map_and_positions():
             maze=[],
             exit=Cell(3, 3),
             key=None,
-            players={1: Player(
+            players={"000001": Player(
                 nick=None,
                 pos=Cell(1, 1),
                 last_played_round=None)
@@ -428,11 +429,11 @@ def test_objects_invalid_map_and_positions():
     level = generate_level(0, random.Random(2))
     empty = Level(
         maze=level.maze,
-        exit=level.players[1].pos,
+        exit=level.players['000001'].pos,
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
-            pos=level.players[1].pos,
+            pos=level.players['000001'].pos,
             last_played_round=None)
         })
     message = 'Координаты выхода и игрока совпадают'
@@ -465,7 +466,7 @@ def test_objects_unreachable_air(monkeypatch):
         maze=maze,
         exit=Cell(1, 3),
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -478,7 +479,7 @@ def test_objects_unreachable_air(monkeypatch):
             maze=maze,
             exit=Cell(1, 3),
             key=None,
-            players={1: Player(
+            players={"000001": Player(
                 nick=None,
                 pos=Cell(1, 1),
                 last_played_round=None)
@@ -495,7 +496,7 @@ def test_key_can_be_reached_through_exit(monkeypatch):
         maze=maze,
         exit=Cell(1, 2),
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -517,7 +518,7 @@ def test_key_preserves_only_monster_cell(monkeypatch):
         maze=maze,
         exit=Cell(3, 1),
         key=None,
-        players={1: Player(
+        players={"000001": Player(
             nick=None,
             pos=Cell(1, 1),
             last_played_round=None)
@@ -532,12 +533,13 @@ def test_objects_with_two_players(level_num):
     """Монстры далеко от каждого игрока и вне путей каждого к выходу."""
     for seed in range(20):
         base = generate_level(level_num, random.Random(seed))
-        first = base.players[1].pos
+        first = base.players['000001'].pos
         cells = get_bfs_distances(base.maze, first)
         second = random.Random(seed).choice(
             [cell for cell in cells if cell not in (first, base.exit)])
         level = Level(maze=base.maze, exit=base.exit, key=None,
-                      players={1: Player(pos=first), 2: Player(pos=second)})
+                      players={'000001': Player(pos=first),
+                               '000002': Player(pos=second)})
         place_objects(level, level_num, random.Random(seed))
         for position in (first, second):
             distances = get_bfs_distances(level.maze, position)
