@@ -66,7 +66,8 @@ class Level:
 
     Attributes:
         maze: Карта из стен и проходов, без объектов.
-        players: Словарь, вида id: Player.
+        players: Игроки по идентификатору: ключ — строка из
+            ``PLAYER_ID_LENGTH`` цифр (``"000001"``), значение — Player.
         exit: Позиция выхода.
         key: Позиция ключа, ``None``, если ключ уже подобран.
         monsters: Монстры в виде пар из символа монстра и его позиции.
@@ -78,7 +79,7 @@ class Level:
     exit: Cell
     key: Cell | None
 
-    players: dict[int, Player] = field(default_factory=dict)
+    players: dict[str, Player] = field(default_factory=dict)
     monsters: list[tuple[str, Cell]] = field(default_factory=list)
     bonuses: dict[Cell, str] = field(default_factory=dict)
     freeze_turns: int = 0

@@ -31,8 +31,8 @@ mock_corridor = [
 ]
 
 
-def make_players(pos: Cell) -> dict[int, Player]:
-    return {1: Player(nick="Vladimir", pos=pos)}
+def make_players(pos: Cell) -> dict[str, Player]:
+    return {"000001": Player(nick="Vladimir", pos=pos)}
 
 
 def test_monster_step_not_implemented():

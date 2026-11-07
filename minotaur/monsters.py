@@ -46,7 +46,7 @@ class Monster:
     def tick(
         self,
         maze: custom_types.Maze,
-        players: dict[int, custom_types.Player],
+        players: dict[str, custom_types.Player],
         turn: int,
         rng: random.Random,
         is_freeze_active: bool = False,
@@ -75,7 +75,7 @@ class Monster:
     def _get_nearest_player(
         self,
         maze: custom_types.Maze,
-        players: dict[int, custom_types.Player]
+        players: dict[str, custom_types.Player]
     ) -> tuple[custom_types.Player, list[custom_types.Cell] | None] | None:
         """Находит ближайшего живого игрока по кратчайшему пути.
 
@@ -110,7 +110,7 @@ class Monster:
     def _step(
         self,
         maze: custom_types.Maze,
-        players: dict[int, custom_types.Player],
+        players: dict[str, custom_types.Player],
         turn: int,
         rng: random.Random,
         key: custom_types.Cell | None = None,
@@ -148,7 +148,7 @@ class Hunter(Monster):
     def _step(
         self,
         maze: custom_types.Maze,
-        players: dict[int, custom_types.Player],
+        players: dict[str, custom_types.Player],
         turn: int,
         rng: random.Random,
         key: custom_types.Cell | None = None,
@@ -262,7 +262,7 @@ class Wanderer(Monster):
     def _step(
         self,
         maze: custom_types.Maze,
-        players: dict[int, custom_types.Player],
+        players: dict[str, custom_types.Player],
         turn: int,
         rng: random.Random,
         key: custom_types.Cell | None = None,

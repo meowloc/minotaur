@@ -19,6 +19,8 @@ Attributes:
     WALL_HORIZONTAL: Символ горизонтальной стены на экране.
     WALL_CORNER: Символ угла стены на экране.
     DIRECTIONS: Направления движения и смещения (строка, столбец).
+    PLAYER_ID_LENGTH: Длина идентификатора игрока: строка ровно из стольких
+        цифр 0–9, например ``"000001"``.
     MONSTER_MIN_SPAWN_DISTANCE: Минимальное расстояние в шагах
         от игрока до монстра при расстановке.
     HUNTER_STEP_RATE: Охотник ходит раз в столько ходов.
@@ -66,6 +68,8 @@ DIRECTIONS = {
     "left": (0, -1),
     "right": (0, 1),
 }
+
+PLAYER_ID_LENGTH = 6
 
 MONSTER_MIN_SPAWN_DISTANCE = 7
 
