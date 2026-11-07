@@ -6,7 +6,7 @@ import random
 import pytest
 
 from minotaur import constants
-from minotaur.custom_types import Cell, Level
+from minotaur.custom_types import Cell, Level, Player
 from minotaur.exceptions import LevelError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 from minotaur.levels import (
@@ -21,10 +21,12 @@ def level():
     return Level(
         maze=[list(row) for row in
               ['#######', '#.....#', '#.....#', '#.....#', '#######']],
-        player=Cell(1, 1), exit=Cell(3, 5), key=Cell(1, 5),
+        players={"000001": Player(nick='Vladimir', pos=Cell(1, 1),
+                                  last_played_round=None, torch_active=True)},
+        exit=Cell(3, 5), key=Cell(1, 5),
         monsters=[('H', Cell(2, 4)), ('W', Cell(3, 1))],
         bonuses={Cell(1, 2): '*', Cell(1, 3): '^', Cell(1, 4): '?'},
-        freeze_turns=2, torch_active=True,
+        freeze_turns=2,
     )
 
 
@@ -36,7 +38,7 @@ def test_round_trip(level, tmp_path):
     assert data['maze'] == level.maze
     loaded = load_level(path)
     assert loaded == level
-    assert type(loaded.player) is Cell
+    assert type(loaded.players['000001'].pos) is Cell
     assert type(loaded.exit) is Cell
     assert type(loaded.key) is Cell
     assert type(loaded.monsters[0][1]) is Cell
@@ -54,8 +56,8 @@ def test_overwrite(level, tmp_path):
     level.monsters.clear()
     level.bonuses.clear()
     level.freeze_turns = 0
-    level.torch_active = False
-    level.player = Cell(3, 4)
+    level.players['000001'].torch_active = False
+    level.players['000001'].pos = Cell(3, 4)
     save_level(level, path)
     assert load_level(path) == level
 
@@ -66,12 +68,19 @@ def test_manual_file_without_effects(tmp_path):
     path.write_text(json.dumps({
         'maze': [list('#####'), list('#...#'), list('#.#.#'),
                  list('#...#'), list('#####')],
-        'player': [1, 1], 'exit': [3, 3], 'key': None,
+        'players': {
+            '000001': {
+                'nick': 'Vladimir',
+                'pos': [1, 1],
+                'last_played_round': -1,
+            }
+        },
+        'exit': [3, 3], 'key': None,
         'monsters': [], 'bonuses': [],
     }), encoding='utf-8')
     loaded = load_level(path)
     assert loaded.freeze_turns == 0
-    assert loaded.torch_active is False
+    assert loaded.players['000001'].torch_active is False
     assert loaded.key is None
 
 
@@ -96,7 +105,7 @@ def test_level_validation_is_separate(level, tmp_path):
     """Сохранение не проверяет уровень, но загрузка отклоняет неверный."""
     path = tmp_path / 'level.json'
     level.maze = []
-    level.player = Cell(-1, -1)
+    level.players['000001'].pos = Cell(-1, -1)
     level.freeze_turns = -1
     save_level(level, path)
     with pytest.raises(LevelError):
@@ -150,7 +159,12 @@ def test_validate_level(level, tmp_path, from_file):
 ])
 def test_validate_invalid_level(level, tmp_path, from_file, field, value):
     """Одинаковые ошибки отклоняются в объекте и в файле."""
-    setattr(level, field, value)
+    if field == 'player':
+        level.players['000001'].pos = value
+    elif field == 'torch_active':
+        level.players['000001'].torch_active = value
+    else:
+        setattr(level, field, value)
     source = level
     if from_file:
         source = tmp_path / 'level.json'
@@ -192,19 +206,19 @@ def test_duplicate_bonuses(level, tmp_path):
 def test_overlapping_objects(level, tmp_path, from_file, case, names):
     """Любая пара объектов отклоняется с указанием обоих типов."""
     if case == 'player_exit':
-        level.exit = level.player
+        level.exit = level.players['000001'].pos
     if case == 'player_key':
-        level.key = level.player
+        level.key = level.players['000001'].pos
     if case == 'exit_key':
         level.key = level.exit
     if case in ('player_monster', 'player_monster_bonus'):
-        level.monsters[0] = ('H', level.player)
+        level.monsters[0] = ('H', level.players['000001'].pos)
     if case == 'exit_monster':
         level.monsters[0] = ('H', level.exit)
     if case == 'key_monster':
         level.monsters[0] = ('H', level.key)
     if case in ('player_bonus', 'player_monster_bonus'):
-        level.bonuses[level.player] = '*'
+        level.bonuses[level.players['000001'].pos] = '*'
     if case == 'exit_bonus':
         level.bonuses[level.exit] = '*'
     if case == 'key_bonus':
@@ -263,8 +277,77 @@ def test_generation_to_level_file(tmp_path):
     for row in maze:
         for symbol in row:
             assert symbol in (constants.FILE_AIR, constants.FILE_WALL)
-    level = Level(maze, player, exit_pos, None)
+    level = Level(
+        maze=maze,
+        exit=exit_pos,
+        key=None,
+        players={
+            "000001": Player(nick='Vladimir', pos=player,
+                             last_played_round=None)
+        },
+    )
     validate_level(level)
     path = tmp_path / 'generated.json'
     save_level(level, path)
     assert load_level(path) == level
+
+
+@pytest.mark.parametrize('from_file', [False, True])
+def test_compass_is_saved_per_player(level, tmp_path, from_file):
+    """Компас хранится у каждого игрока и проверяется как булево."""
+    path = tmp_path / 'level.json'
+    level.players['000002'] = Player(pos=Cell(2, 2), compass_active=True)
+    save_level(level, path)
+    loaded = load_level(path)
+    assert loaded.players['000001'].compass_active is False
+    assert loaded.players['000002'].compass_active is True
+    level.players['000002'].compass_active = 1
+    source = level
+    if from_file:
+        source = tmp_path / 'bad.json'
+        save_level(level, source)
+    with pytest.raises(LevelError, match='состояние игрока'):
+        validate_level(source)
+
+
+def test_player_id_is_dict_key(level, tmp_path):
+    """Идентификатор игрока задаётся только ключом словаря players."""
+    path = tmp_path / 'level.json'
+    save_level(level, path)
+    data = json.loads(path.read_text(encoding='utf-8'))
+    assert list(data['players']) == ['000001']
+    assert 'id' not in data['players']['000001']
+    assert list(load_level(path).players) == ['000001']
+
+
+@pytest.mark.parametrize('player_id, from_file', [
+    ('1', False),
+    ('0000001', False),
+    ('00000a', False),
+    ('٠٠٠٠٠١', False),
+    ('00000a', True),
+])
+def test_invalid_player_id(level, tmp_path, player_id, from_file):
+    """Короче или длиннее шести знаков, не цифра или не цифра 0–9:
+    ошибка и в объекте, и в файле."""
+    level.players = {player_id: level.players['000001']}
+    source = level
+    if from_file:
+        source = tmp_path / 'level.json'
+        save_level(level, source)
+    with pytest.raises(LevelError, match='идентификатор'):
+        validate_level(source)
+
+
+def test_player_id_must_be_string(level):
+    """Число из шести цифр не подходит: ключ должен быть строкой."""
+    level.players = {123456: level.players['000001']}
+    with pytest.raises(LevelError, match='идентификатор'):
+        validate_level(level)
+
+
+def test_is_key_taken(level):
+    """Ключ общий: после подбора любым игроком он поднят для всех."""
+    assert level.is_key_taken is False
+    level.key = None
+    assert level.is_key_taken is True
