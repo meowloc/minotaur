@@ -17,3 +17,6 @@ class GenerationError(MinotaurError, ValueError):
 
 class PlaceError(MinotaurError, ValueError):
     """Ошибка при размещении объектов на карте."""
+class MovementError(MinotaurError, ValueError):
+    """Ошибка при движении игрока"""
+
