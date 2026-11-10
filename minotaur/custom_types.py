@@ -72,6 +72,7 @@ class Level:
         key: Позиция ключа, ``None``, если ключ уже подобран.
         monsters: Монстры в виде пар из символа монстра и его позиции.
         bonuses: Бонусы: позиция бонуса и его символ.
+        is_freeze_active: Активен ли бонус (заморозка)
         freeze_turns: Сколько ходов ещё действует заморозка, 0 — не действует.
     """
 
@@ -82,6 +83,7 @@ class Level:
     players: dict[str, Player] = field(default_factory=dict)
     monsters: list[tuple[str, Cell]] = field(default_factory=list)
     bonuses: dict[Cell, str] = field(default_factory=dict)
+    is_freeze_active: bool = False
     freeze_turns: int = 0
 
     @property
