@@ -95,7 +95,7 @@ class Protocol:
                 if item["sent"] == self.attempts:
                     self.tube.close()
                     raise TimeoutError(f"Нет ACK на запрос №{num}. "
-                                       f"Плохое соединение - проверьте интернет.")
+                                       f"Проверьте интернет.")
                 self.tube.sendline(item["line"])
                 item["sent"] += 1
                 item["deadline"] = monotonic() + self.timeout
