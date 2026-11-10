@@ -20,4 +20,4 @@ class PlaceError(MinotaurError, ValueError):
 
 
 class MovementError(MinotaurError, ValueError):
-    """Ошибка при движении игрока"""
+    """Ошибка при движении игрока."""
