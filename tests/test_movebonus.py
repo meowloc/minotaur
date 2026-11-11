@@ -32,20 +32,67 @@ def game_state():
     return player_1, player_2, level
 
 
+@pytest.fixture
+def move_check():
+    """Создаёт тестовый уровень с двумя игроками и монстром."""
+    player_1 = Player(pos=Cell(2, 2))
+    level = Level(
+        maze=[
+            list("#####"),
+            list("#...#"),
+            list("#...#"),
+            list("#...#"),
+            list("#####")
+        ],
+        exit=Cell(3, 3),
+        key=Cell(1, 3),
+        players={
+            "100000": player_1,
+        },
+        monsters=[]
+        )
+    return player_1, level
+
+
+def test_move_left(move_check):
+    """Движение налево"""
+    player_1, level = move_check
+    player_move((0, 1), player_1, level, None)
+    assert player_1.pos == Cell(2, 3)
+    assert player_1.steps == 1
+
+
+def test_move_right(move_check):
+    """Движение направо"""
+    player_1, level = move_check
+    player_move((0, -1), player_1, level, None)
+    assert player_1.pos == Cell(2, 1)
+    assert player_1.steps == 1
+
+
+def test_move_up(move_check):
+    """Движение вверх"""
+    player_1, level = move_check
+    player_move((-1, 0), player_1, level, None)
+    assert player_1.pos == Cell(1, 2)
+    assert player_1.steps == 1
+
+
+def test_move_down(move_check):
+    """Движение вниз"""
+    player_1, level = move_check
+    player_move((1, 0), player_1, level, None)
+    assert player_1.pos == Cell(3, 2)
+    assert player_1.steps == 1
+
+
 def test_move_into_wall(game_state):
     """Нельзя попасть в клетку со стеной."""
     player_1, player_2, level = game_state
     with pytest.raises(MovementError):
         player_move((-1, 0), player_1, level, player_2)
     assert player_1.pos == Cell(1, 1)
-
-
-def test_normal_move(game_state):
-    """Обычный ход."""
-    player_1, player_2, level = game_state
-    player_move((0, 1), player_2, level, player_1)
-    assert player_2.pos == Cell(1, 3)
-    assert player_2.steps == 1
+    assert player_1.steps == 0
 
 
 def test_move_into_another_player(game_state):
@@ -54,6 +101,7 @@ def test_move_into_another_player(game_state):
     with pytest.raises(MovementError):
         player_move((0, 1), player_1, level, player_2)
     assert player_1.pos == Cell(1, 1)
+    assert player_1.steps == 0
 
 
 def test_move_into_monster(game_state):
