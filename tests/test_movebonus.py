@@ -34,7 +34,7 @@ def game_state():
 
 @pytest.fixture
 def move_check():
-    """Создаёт тестовый уровень с двумя игроками и монстром."""
+    """Создаёт тестовый уровень с одним игроком без монстра и второго игрока"""
     player_id_1 = "000001"
     level = Level(
         maze=[
@@ -54,16 +54,16 @@ def move_check():
     return player_id_1, level
 
 
-def test_move_left(move_check):
-    """Движение налево"""
+def test_move_right(move_check):
+    """Движение направо"""
     player_id_1, level = move_check
     move_player((0, 1), player_id_1, level)
     assert level.players[player_id_1].pos == Cell(2, 3)
     assert level.players[player_id_1].steps == 1
 
 
-def test_move_right(move_check):
-    """Движение направо"""
+def test_move_left(move_check):
+    """Движение налево"""
     player_id_1, level = move_check
     move_player((0, -1), player_id_1, level)
     assert level.players[player_id_1].pos == Cell(2, 1)
@@ -133,7 +133,7 @@ def test_torch_bonus(game_state):
     assert level.players[player_id_1].torch_active is True
 
 
-def test_compas_bonus(game_state):
+def test_compass_bonus(game_state):
     """Компас."""
     player_id_1, level = game_state
     apply_bonus(constants.COMPASS, player_id_1, level)

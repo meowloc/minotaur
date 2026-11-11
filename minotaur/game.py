@@ -11,15 +11,16 @@ def move_player(direction: tuple, player_id: str, level: Level):
 
     Args:
         direction: Смещение по строке и столбцу.
-        player_id: Айди игрока, который совершил передвижение.
+        player_id: id игрока, который совершил передвижение.
         level: Уровень с лабиринтом и монстрами.
 
     Raises:
         MovementError: Если клетка занята стеной
             или другим игроком.
     """
-    new_pos = Cell(direction[0] + level.players[player_id].pos.row,
-                   direction[1] + level.players[player_id].pos.col)
+    curr_player = level.players[player_id]
+    new_pos = Cell(direction[0] + curr_player.pos.row,
+                   direction[1] + curr_player.pos.col)
     other_players = {
         key: value
         for key, value in level.players.items()
@@ -36,9 +37,9 @@ def move_player(direction: tuple, player_id: str, level: Level):
         )
     elif any(monster_pos == new_pos
              for _, monster_pos in level.monsters):
-        level.players[player_id].is_alive = False
-    level.players[player_id].pos = new_pos
-    level.players[player_id].steps += 1
+        curr_player.is_alive = False
+    curr_player.pos = new_pos
+    curr_player.steps += 1
 
 
 def apply_bonus(bonus: str, player_id: str, level: Level):
@@ -50,17 +51,18 @@ def apply_bonus(bonus: str, player_id: str, level: Level):
 
     Args:
         bonus: Тип бонуса, который получает игрок.
-        player_id: id Игрока, который применяется бонус.
+        player_id: id игрока, к которому применяется бонус.
         level: Уровень, состояние которого изменяется.
 
     Raises:
         LevelError: Если передан неизвестный бонус.
     """
+    curr_player = level.players[player_id]
     if bonus == constants.FREEZE:
         level.freeze_turns = constants.BONUS_FREEZE_STEPS
     elif bonus == constants.TORCH:
-        level.players[player_id].torch_active = True
+        curr_player.torch_active = True
     elif bonus == constants.COMPASS:
-        level.players[player_id].compass_active = True
+        curr_player.compass_active = True
     else:
         raise LevelError(f"Бонус {bonus} не находится в константах")
