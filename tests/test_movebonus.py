@@ -8,6 +8,7 @@ from minotaur.game import apply_bonus, player_move
 
 @pytest.fixture
 def game_state():
+    """Создаёт тестовый уровень с двумя игроками и монстром."""
     player_1 = Player(pos=Cell(1, 1))
     player_2 = Player(pos=Cell(1, 2))
     level = Level(
@@ -36,14 +37,14 @@ def test_move_into_wall(game_state):
     player_1, player_2, level = game_state
     with pytest.raises(MovementError):
         player_move((-1, 0), player_1, level, player_2)
-        assert player_1 == Cell(1, 1)
+    assert player_1.pos == Cell(1, 1)
 
 
 def test_normal_move(game_state):
     """Обычный ход."""
     player_1, player_2, level = game_state
-    player_move((1, 0), player_2, level, player_1)
-    assert player_2.pos == Cell(2, 2)
+    player_move((0, 1), player_2, level, player_1)
+    assert player_2.pos == Cell(1, 3)
     assert player_2.steps == 1
 
 
@@ -52,7 +53,7 @@ def test_move_into_another_player(game_state):
     player_1, player_2, level = game_state
     with pytest.raises(MovementError):
         player_move((0, 1), player_1, level, player_2)
-        assert player_1 == Cell(1, 1)
+    assert player_1.pos == Cell(1, 1)
 
 
 def test_move_into_monster(game_state):
@@ -84,10 +85,8 @@ def test_torch_bonus(game_state):
     assert player_1.torch_active is True
 
 
-def test_compass_bonus(game_state):
-    "Компас."
+def test_compas_bonus(game_state):
+    """Компас."""
     player_1, player_2, level = game_state
     apply_bonus(constants.COMPASS, player_1, level)
-    assert player_1.compass_active is True
-
     assert player_1.compass_active is True

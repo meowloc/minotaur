@@ -4,7 +4,7 @@ from minotaur.exceptions import MovementError, LevelError
 
 
 def player_move(direction: tuple, player: Player,
-                level: Level, other_player: Player):
+                level: Level, other_player: Player | None):
     """Перемещает игрока на одну клетку лабиринта.
 
     Проверяет стены, монстров и других игроков.
@@ -22,22 +22,21 @@ def player_move(direction: tuple, player: Player,
     """
     new_pos = Cell(direction[0] + player.pos.row,
                    direction[1] + player.pos.col)
-    if level.maze[new_pos.row][new_pos.row] == constants.FILE_WALL:
+    if level.maze[new_pos.row][new_pos.col] == constants.FILE_WALL:
         raise MovementError(
                "Ход невозможен: на пути стена!"
         )
     elif any(monster_pos == new_pos
              for _, monster_pos in level.monsters):
-        player.pos = new_pos
-        player.steps += 1
+
         player.is_alive = False
-    elif other_player.pos == new_pos:
-        raise MovementError(
-            "Ход невозможен: на пути напарник!"
-        )
-    else:
-        player.pos = new_pos
-        player.steps += 1
+    elif other_player is not None:
+        if other_player.pos == new_pos:
+            raise MovementError(
+                "Ход невозможен: на пути напарник!"
+            )
+    player.pos = new_pos
+    player.steps += 1
 
 
 def apply_bonus(bonus: str, player: Player, level: Level):
