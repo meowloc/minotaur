@@ -47,7 +47,7 @@ def apply_bonus(bonus: str, player_id: str, level: Level):
 
     Заморозка останавливает монстров на заданное
     количество ходов. Факел активирует освещение,
-    а компас включает отображение маршрута.
+    а компас включает отображение маршрута до ключа или выхода.
 
     Args:
         bonus: Тип бонуса, который получает игрок.
@@ -65,4 +65,4 @@ def apply_bonus(bonus: str, player_id: str, level: Level):
     elif bonus == constants.COMPASS:
         curr_player.compass_active = True
     else:
-        raise LevelError(f"Бонус {bonus} не находится в константах")
+        raise LevelError(f"Бонус {bonus} не находится в константах!")

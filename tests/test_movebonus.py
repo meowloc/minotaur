@@ -34,7 +34,7 @@ def game_state():
 
 @pytest.fixture
 def move_check():
-    """Создаёт тестовый уровень с одним игроком без монстра и второго игрока"""
+    """Создаёт тестовый уровень только с одним игроком."""
     player_id_1 = "000001"
     level = Level(
         maze=[
@@ -55,7 +55,7 @@ def move_check():
 
 
 def test_move_right(move_check):
-    """Движение направо"""
+    """Движение направо."""
     player_id_1, level = move_check
     move_player((0, 1), player_id_1, level)
     assert level.players[player_id_1].pos == Cell(2, 3)
@@ -63,7 +63,7 @@ def test_move_right(move_check):
 
 
 def test_move_left(move_check):
-    """Движение налево"""
+    """Движение налево."""
     player_id_1, level = move_check
     move_player((0, -1), player_id_1, level)
     assert level.players[player_id_1].pos == Cell(2, 1)
@@ -71,7 +71,7 @@ def test_move_left(move_check):
 
 
 def test_move_up(move_check):
-    """Движение вверх"""
+    """Движение вверх."""
     player_id_1, level = move_check
     move_player((-1, 0), player_id_1, level)
     assert level.players[player_id_1].pos == Cell(1, 2)
@@ -79,7 +79,7 @@ def test_move_up(move_check):
 
 
 def test_move_down(move_check):
-    """Движение вниз"""
+    """Движение вниз."""
     player_id_1, level = move_check
     move_player((1, 0), player_id_1, level)
     assert level.players[player_id_1].pos == Cell(3, 2)
