@@ -49,7 +49,7 @@ def test_normal_move(game_state):
 
 
 def test_move_into_another_player(game_state):
-    """Нельзя попасть на клетку, на которой стоит твой союзник."""
+    """Нельзя попасть на клетку, на которой стоит твой напарник."""
     player_1, player_2, level = game_state
     with pytest.raises(MovementError):
         player_move((0, 1), player_1, level, player_2)
