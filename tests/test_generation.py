@@ -6,7 +6,7 @@ import pytest
 
 from minotaur.custom_types import Cell
 from minotaur.exceptions import GenerationError, LevelError
-from minotaur.generator import add_loops, making_labyrinth
+from minotaur.generator import add_loops, init_map_gen, making_labyrinth
 
 
 def test_dfs_continues_after_exit():
@@ -79,3 +79,13 @@ def test_add_loops_not_enough_walls():
     with pytest.raises(LevelError, match="Недостаточно стен"):
         add_loops(maze, 2)
     assert maze == before
+
+
+def test_init_map_gen():
+    maze = init_map_gen(0)
+    assert maze == [list("#########") for _ in range(7)]
+
+
+def test_init_map_gen_negative_number():
+    with pytest.raises(GenerationError, match="Недопустимый номер"):
+        init_map_gen(-1)

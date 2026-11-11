@@ -1,5 +1,7 @@
 """Размещение объектов, сохранение и загрузка уровня."""
 
+import copy
+import hashlib
 import json
 import random
 
@@ -7,22 +9,23 @@ from minotaur import constants
 from minotaur.custom_types import Cell, Level, Player
 from minotaur.exceptions import LevelError, PlaceError
 from minotaur.generator import add_loops, init_map_gen, making_labyrinth
-from minotaur.pathfinding import get_bfs_distances, get_shortest_path
+from minotaur.pathfinding import get_bfs_distances, get_neighbors
+from minotaur.pathfinding import get_shortest_path
 
 
 def is_player_id(value):
-    """Проверить, что идентификатор игрока — строка из цифр нужной длины.
+    """Проверить, что идентификатор игрока — короткая шестнадцатеричная строка.
 
     Args:
         value: Ключ словаря игроков.
 
     Returns:
-        ``True``, если это строка ровно из ``PLAYER_ID_LENGTH`` цифр 0–9,
-        например ``"000001"``, иначе ``False``.
+        ``True``, если строка содержит ``PLAYER_ID_LENGTH`` символов
+        из 0–9 и a–f, например ``"e482ab"``, иначе ``False``.
     """
     return (type(value) is str
             and len(value) == constants.PLAYER_ID_LENGTH
-            and value.isascii() and value.isdigit())
+            and all(char in "0123456789abcdef" for char in value))
 
 
 def place_exit_and_player(map_matrix, rng=None):
@@ -178,31 +181,62 @@ def place_objects(level: Level, level_num, rng=None):
     return level
 
 
-def generate_level(level_num, rng=None):
+def generate_level(level_num, rng=None, player=None, second_nick=None):
     """Создать карту и расставить все объекты уровня.
 
     Args:
         level_num: Индекс уровня, начиная с нуля.
         rng: Общий генератор random.Random для всех этапов.
+        player: Игрок на компьютере хоста. На уровень ставится его копия.
+            Без этого аргумента создаётся одиночный игрок с ником «Игрок».
+        second_nick: Ник второго игрока из лобби. Нужен, когда хост
+            подключён к серверу. В одиночной игре игнорируется.
 
     Returns:
         Проверенный Level с ключом, монстрами и бонусами.
 
     Raises:
         GenerationError: Неверный номер уровня или размер карты.
-        PlaceError: На полученной карте не хватает мест для объектов.
+        PlaceError: Не хватает мест, у игрока пустой ник или ID совпадают.
         LevelError: Невозможно добавить проходы или уровень некорректен.
     """
     if rng is None:
         rng = random.Random()
-    maze = init_map_gen(level_num)
-    player, exit_pos = place_exit_and_player(maze, rng)
-    making_labyrinth(maze, player, exit_pos, rng)
-    add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
-    level = Level(maze=maze, exit=exit_pos, key=None,
-                  players={"000001": Player(nick=None, pos=player,
-                                            last_played_round=None)})
-    return place_objects(level, level_num, rng)
+    if player is None:
+        player = Player(nick="Игрок", pos=Cell(0, 0))
+    participants = [player]
+    if player.is_connected:
+        participants.append(Player(nick=second_nick, pos=Cell(0, 0),
+                                   is_connected=True, is_ready=True))
+
+    players = {}
+    for participant in participants:
+        if type(participant.nick) is not str or not participant.nick:
+            raise PlaceError("Для генерации нужен ник игрока.")
+        digest = hashlib.md5(participant.nick.encode("utf-8")).hexdigest()
+        player_id = digest[:constants.PLAYER_ID_LENGTH]
+        if player_id in players:
+            raise PlaceError("Идентификаторы игроков совпадают.")
+        players[player_id] = copy.copy(participant)
+
+    # На маленькой карте рядом с двумя игроками может не остаться
+    # подходящей клетки для монстра. Тогда строим новый лабиринт.
+    for attempt in range(10):
+        maze = init_map_gen(level_num)
+        start, exit_pos = place_exit_and_player(maze, rng)
+        making_labyrinth(maze, start, exit_pos, rng)
+        add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
+        positions = [start]
+        if len(players) == 2:
+            positions.append(rng.choice(get_neighbors(maze, start)))
+        for participant, position in zip(players.values(), positions):
+            participant.pos = position
+        level = Level(maze=maze, exit=exit_pos, key=None, players=players)
+        try:
+            return place_objects(level, level_num, rng)
+        except PlaceError:
+            if attempt == 9:
+                raise
 
 
 def validate_level(source):
@@ -221,7 +255,7 @@ def validate_level(source):
             карта меньше 5x5, строки разной длины, есть посторонние символы
             или проходы на внешней границе; координаты не являются парой
             целых чисел, лежат в стене или вне внутренней части карты;
-            идентификатор игрока не строка из ``PLAYER_ID_LENGTH`` цифр;
+            идентификатор игрока не короткая шестнадцатеричная строка;
             неизвестен тип монстра или бонуса; любые два объекта
             занимают одну клетку; объект недостижим для игрока;
             остаток заморозки не является целым неотрицательным числом
