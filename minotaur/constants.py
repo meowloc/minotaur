@@ -137,51 +137,62 @@ PALETTE = {
 }
 
 
-def _plural(n: int, word: str) -> str:
-    """Возвращает число с английским существительным в правильной форме.
+def _plural(n: int, forms: tuple[str, str, str]) -> str:
+    """Возвращает число с существительным в нужной форме.
 
     Args:
         n: Количество предметов.
-        word: Существительное в единственном числе.
+        forms: Формы слова для 1, 2 и 5 предметов,
+            например ``("ход", "хода", "ходов")``.
 
     Returns:
-        "1 turn", если n равно 1, иначе форму множественного числа,
-        например "3 turns".
+        Строка вида "1 ход", "3 хода" или "11 ходов".
     """
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+    if n % 10 == 1 and n % 100 != 11:
+        form = forms[0]
+    elif 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        form = forms[1]
+    else:
+        form = forms[2]
+    return f"{n} {form}"
 
 
-def _every(n: int, word: str = "turn") -> str:
-    """Возвращает обозначение периода для фразы, начинающейся с "every".
+def _every(n: int) -> str:
+    """Возвращает, как часто монстр ходит.
 
     Args:
-        n: Сколько единиц длится период.
-        word: Единица измерения в единственном числе.
+        n: Раз в сколько ходов монстр делает шаг.
 
     Returns:
-        "turn", если n равно 1 (как в "every turn"), иначе "2 turns".
+        "каждый ход", если n равно 1, иначе, например, "раз в 2 хода".
     """
-    return word if n == 1 else f"{n} {word}s"
+    if n == 1:
+        return "каждый ход"
+    return f"раз в {_plural(n, TURN_FORMS)}"
 
+
+TURN_FORMS = ("ход", "хода", "ходов")
 
 LEGEND = [
-    (FILE_AIR, "Air", "Free passage"),
-    (WALL_CORNER + WALL_HORIZONTAL + WALL_VERTICAL, "Wall", "Impassable"),
-    (PLAYER, "Player", "Moves one cell per turn"),
-    (KEY, "Key", "Required to open the exit"),
-    (EXIT, "Exit", "Opens only if the key has been picked up"),
-    (HUNTER, "Hunter",
-     "Cuts you off on the way to the key, then follows you "
-     f"by the shortest path, one step every {_every(HUNTER_STEP_RATE)}"),
-    (WANDERER, "Wanderer",
-     f"Moves every {_every(WANDERER_STEP_RATE)}, wanders randomly, "
-     f"chases you within {_plural(WANDERER_CHASE_BFS_STEPS, 'step')} "
-     "and checks where it saw you last"),
-    (FREEZE, "Freeze",
-     f"Monsters stand still for {_plural(BONUS_FREEZE_STEPS, 'turn')}"),
-    (TORCH, "Torch",
-     f"View radius +{BONUS_TORCH_RADIUS} until the end of the level"),
-    (COMPASS, "Compass",
-     f"Shows the next {_plural(BONUS_COMPASS_RANGE, 'cell')} "
-     "of the path to the key or the exit"),
+    (FILE_AIR, "Проход", "Свободная клетка"),
+    (WALL_CORNER + WALL_HORIZONTAL + WALL_VERTICAL, "Стена", "Не пройти"),
+    (PLAYER, "Игрок", "Ходит на одну клетку за ход"),
+    (KEY, "Ключ", "Нужен, чтобы открыть выход"),
+    (EXIT, "Выход", "Открывается, только если ключ подобран"),
+    (HUNTER, "Охотник",
+     "Перехватывает вас по дороге к ключу, а потом идёт за вами "
+     f"кратчайшим путём, шаг {_every(HUNTER_STEP_RATE)}"),
+    (WANDERER, "Бродяга",
+     f"Ходит {_every(WANDERER_STEP_RATE)}, бродит наугад, гонится "
+     "за вами в пределах "
+     f"{_plural(WANDERER_CHASE_BFS_STEPS, ('шага', 'шагов', 'шагов'))} "
+     "и проверяет место, где видел вас в последний раз"),
+    (FREEZE, "Заморозка",
+     f"Монстры стоят на месте {_plural(BONUS_FREEZE_STEPS, TURN_FORMS)}"),
+    (TORCH, "Факел",
+     f"Радиус обзора +{BONUS_TORCH_RADIUS} до конца уровня"),
+    (COMPASS, "Компас",
+     "Показывает "
+     f"{_plural(BONUS_COMPASS_RANGE, ('клетку', 'клетки', 'клеток'))} "
+     "пути к ключу или выходу"),
 ]
