@@ -2,7 +2,7 @@
 
 Attributes:
     LEVEL_SIZES: Размеры карт уровней в виде пар (высота, ширина).
-    LEVEL_CONTENTS: Наполнение уровней в виде кортежей (охотники,
+    LEVEL_CONTENTS: Наполнение уровней в виде кортежей (минотавры, охотники,
         бродяги, бонусы, дополнительно сломанные стены).
     MAX_LEVEL: Количество уровней; номера уровней от 0 до MAX_LEVEL - 1.
     FILE_AIR: Символ прохода в файле уровня.
@@ -11,6 +11,7 @@ Attributes:
     ALLY: Символ второго игрока на экране (в онлайн-игре).
     KEY: Символ ключа.
     EXIT: Символ выхода.
+    MINOTAUR: Символ минотавра.
     HUNTER: Символ охотника.
     WANDERER: Символ бродяги.
     FREEZE: Символ бонуса заморозки.
@@ -24,6 +25,10 @@ Attributes:
         цифр 0–9, например ``"000001"``.
     MONSTER_MIN_SPAWN_DISTANCE: Минимальное расстояние в шагах
         от игрока до монстра при расстановке.
+    MINOTAUR_JUMP_RANGE: Дальность прыжка Минотавра в клетках; стены
+        прыжку не мешают.
+    MINOTAUR_AIM_TURNS: Сколько ходов требуется Минотавру на совершение прыжка.
+    MINOTAUR_REST_TURNS: Сколько ходов Минотавр отдыхает после прыжка.
     HUNTER_STEP_RATE: Охотник ходит раз в столько ходов.
     WANDERER_STEP_RATE: Бродяга ходит раз в столько ходов.
     WANDERER_CHASE_BFS_STEPS: Расстояние в шагах, с которого бродяга
@@ -43,8 +48,15 @@ Attributes:
 LEVEL_SIZES = [(7, 9), (9, 11), (11, 13), (13, 15),
                (15, 17), (19, 21), (21, 23)]
 
-LEVEL_CONTENTS = [(0, 1, 1, 2), (1, 0, 1, 3), (1, 1, 2, 4), (1, 2, 2, 6),
-                  (2, 1, 3, 8), (2, 2, 3, 10), (3, 2, 4, 12)]
+LEVEL_CONTENTS = [
+    (0, 0, 1, 1, 2),
+    (0, 1, 0, 1, 3),
+    (0, 1, 1, 2, 4),
+    (0, 1, 2, 2, 6),
+    (0, 2, 1, 3, 8),
+    (0, 2, 2, 3, 10),
+    (1, 2, 2, 4, 12)
+]
 
 MAX_LEVEL = len(LEVEL_SIZES)
 
@@ -55,6 +67,8 @@ PLAYER = "P"
 ALLY = "P"
 KEY = "K"
 EXIT = "E"
+MINOTAUR_MARK = "!"
+MINOTAUR = "M"
 HUNTER = "H"
 WANDERER = "W"
 FREEZE = "*"
@@ -76,7 +90,12 @@ PLAYER_ID_LENGTH = 6
 
 MONSTER_MIN_SPAWN_DISTANCE = 7
 
+MINOTAUR_JUMP_RANGE = 6
+MINOTAUR_AIM_TURNS = 2
+MINOTAUR_REST_TURNS = 3
+
 HUNTER_STEP_RATE = 1
+
 WANDERER_STEP_RATE = 1
 WANDERER_CHASE_BFS_STEPS = 5
 
@@ -121,51 +140,71 @@ PALETTE = {
 }
 
 
-def _plural(n: int, word: str) -> str:
-    """Возвращает число с английским существительным в правильной форме.
+def _plural(n: int, forms: tuple[str, str, str]) -> str:
+    """Возвращает число с существительным в нужной форме.
 
     Args:
         n: Количество предметов.
-        word: Существительное в единственном числе.
+        forms: Формы слова для 1, 2 и 5 предметов,
+            например ``("ход", "хода", "ходов")``.
 
     Returns:
-        "1 turn", если n равно 1, иначе форму множественного числа,
-        например "3 turns".
+        Строка вида "1 ход", "3 хода" или "11 ходов".
     """
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+    if n % 10 == 1 and n % 100 != 11:
+        form = forms[0]
+    elif 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        form = forms[1]
+    else:
+        form = forms[2]
+    return f"{n} {form}"
 
 
-def _every(n: int, word: str = "turn") -> str:
-    """Возвращает обозначение периода для фразы, начинающейся с "every".
+def _every(n: int) -> str:
+    """Возвращает, как часто монстр ходит.
 
     Args:
-        n: Сколько единиц длится период.
-        word: Единица измерения в единственном числе.
+        n: Раз в сколько ходов монстр делает шаг.
 
     Returns:
-        "turn", если n равно 1 (как в "every turn"), иначе "2 turns".
+        "каждый ход", если n равно 1, иначе, например, "раз в 2 хода".
     """
-    return word if n == 1 else f"{n} {word}s"
+    if n == 1:
+        return "каждый ход"
+    return f"раз в {_plural(n, TURN_FORMS)}"
 
+
+TURN_FORMS = ("ход", "хода", "ходов")
 
 LEGEND = [
-    (FILE_AIR, "Air", "Free passage"),
-    (WALL_CORNER + WALL_HORIZONTAL + WALL_VERTICAL, "Wall", "Impassable"),
-    (PLAYER, "Player", "Moves one cell per turn"),
-    (KEY, "Key", "Required to open the exit"),
-    (EXIT, "Exit", "Opens only if the key has been picked up"),
-    (HUNTER, "Hunter",
-     "Cuts you off on the way to the key, then follows you "
-     f"by the shortest path, one step every {_every(HUNTER_STEP_RATE)}"),
-    (WANDERER, "Wanderer",
-     f"Moves every {_every(WANDERER_STEP_RATE)}, wanders randomly, "
-     f"chases you within {_plural(WANDERER_CHASE_BFS_STEPS, 'step')} "
-     "and checks where it saw you last"),
-    (FREEZE, "Freeze",
-     f"Monsters stand still for {_plural(BONUS_FREEZE_STEPS, 'turn')}"),
-    (TORCH, "Torch",
-     f"View radius +{BONUS_TORCH_RADIUS} until the end of the level"),
-    (COMPASS, "Compass",
-     f"Shows the next {_plural(BONUS_COMPASS_RANGE, 'cell')} "
-     "of the path to the key or the exit"),
+    (FILE_AIR, "Проход", "Свободная клетка"),
+    (WALL_CORNER + WALL_HORIZONTAL + WALL_VERTICAL, "Стена", "Не пройти"),
+    (PLAYER, "Игрок", "Ходит на одну клетку за ход"),
+    (KEY, "Ключ", "Нужен, чтобы открыть выход"),
+    (EXIT, "Выход", "Открывается, только если ключ подобран"),
+    (MINOTAUR_MARK, "Метка прыжка",
+     "Сюда Минотавр приземлится на следующем ходу. Видна даже в тени: "
+     "уйдите из области, иначе вас поймают"),
+    (MINOTAUR, "Минотавр",
+     "Финальный босс 7-го уровня. Отмечает область 3 × 3 вокруг "
+     "ближайшего игрока, на следующем ходу прыгает туда через стены "
+     "не дальше "
+     f"{_plural(MINOTAUR_JUMP_RANGE, ('клетки', 'клеток', 'клеток'))} "
+     f"и отдыхает {_plural(MINOTAUR_REST_TURNS, TURN_FORMS)}"),
+    (HUNTER, "Охотник",
+     "Перехватывает вас по дороге к ключу, а потом идёт за вами "
+     f"кратчайшим путём, шаг {_every(HUNTER_STEP_RATE)}"),
+    (WANDERER, "Бродяга",
+     f"Ходит {_every(WANDERER_STEP_RATE)}, бродит наугад, гонится "
+     "за вами в пределах "
+     f"{_plural(WANDERER_CHASE_BFS_STEPS, ('шага', 'шагов', 'шагов'))} "
+     "и проверяет место, где видел вас в последний раз"),
+    (FREEZE, "Заморозка",
+     f"Монстры стоят на месте {_plural(BONUS_FREEZE_STEPS, TURN_FORMS)}"),
+    (TORCH, "Факел",
+     f"Радиус обзора +{BONUS_TORCH_RADIUS} до конца уровня"),
+    (COMPASS, "Компас",
+     "Показывает "
+     f"{_plural(BONUS_COMPASS_RANGE, ('клетку', 'клетки', 'клеток'))} "
+     "пути к ключу или выходу"),
 ]

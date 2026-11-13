@@ -118,7 +118,7 @@ def place_objects(level: Level, level_num, rng=None):
     if rng is None:
         rng = random.Random()
 
-    hunters, wanderers, bonus_count, _ = constants.LEVEL_CONTENTS[level_num]
+    _, hunters, wanderers, bonus_count, _ = constants.LEVEL_CONTENTS[level_num]
     if not level.players:
         raise PlaceError("На уровне нет игроков.")
     player_positions = [player.pos for player in level.players.values()]
@@ -198,7 +198,7 @@ def generate_level(level_num, rng=None):
     maze = init_map_gen(level_num)
     player, exit_pos = place_exit_and_player(maze, rng)
     making_labyrinth(maze, player, exit_pos, rng)
-    add_loops(maze, constants.LEVEL_CONTENTS[level_num][3], rng)
+    add_loops(maze, constants.LEVEL_CONTENTS[level_num][4], rng)
     level = Level(maze=maze, exit=exit_pos, key=None,
                   players={"000001": Player(nick=None, pos=player,
                                             last_played_round=None)})
