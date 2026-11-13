@@ -2,7 +2,7 @@
 
 Attributes:
     LEVEL_SIZES: Размеры карт уровней в виде пар (высота, ширина).
-    LEVEL_CONTENTS: Наполнение уровней в виде кортежей (охотники,
+    LEVEL_CONTENTS: Наполнение уровней в виде кортежей (минотавры, охотники,
         бродяги, бонусы, дополнительно сломанные стены).
     MAX_LEVEL: Количество уровней; номера уровней от 0 до MAX_LEVEL - 1.
     FILE_AIR: Символ прохода в файле уровня.
@@ -11,6 +11,7 @@ Attributes:
     ALLY: Символ второго игрока на экране (в онлайн-игре).
     KEY: Символ ключа.
     EXIT: Символ выхода.
+    MINOTAUR: Символ минотавра.
     HUNTER: Символ охотника.
     WANDERER: Символ бродяги.
     FREEZE: Символ бонуса заморозки.
@@ -24,6 +25,9 @@ Attributes:
         цифр 0–9, например ``"000001"``.
     MONSTER_MIN_SPAWN_DISTANCE: Минимальное расстояние в шагах
         от игрока до монстра при расстановке.
+    MINOTAUR_JUMP_RANGE: Дальность прыжка Минотавра в клетках; стены
+        прыжку не мешают.
+    MINOTAUR_REST_TURNS: Сколько ходов Минотавр отдыхает после прыжка.
     HUNTER_STEP_RATE: Охотник ходит раз в столько ходов.
     WANDERER_STEP_RATE: Бродяга ходит раз в столько ходов.
     WANDERER_CHASE_BFS_STEPS: Расстояние в шагах, с которого бродяга
@@ -43,8 +47,15 @@ Attributes:
 LEVEL_SIZES = [(7, 9), (9, 11), (11, 13), (13, 15),
                (15, 17), (19, 21), (21, 23)]
 
-LEVEL_CONTENTS = [(0, 1, 1, 2), (1, 0, 1, 3), (1, 1, 2, 4), (1, 2, 2, 6),
-                  (2, 1, 3, 8), (2, 2, 3, 10), (3, 2, 4, 12)]
+LEVEL_CONTENTS = [
+    (0, 0, 1, 1, 2),
+    (0, 1, 0, 1, 3),
+    (0, 1, 1, 2, 4),
+    (0, 1, 2, 2, 6),
+    (0, 2, 1, 3, 8),
+    (0, 2, 2, 3, 10),
+    (1, 2, 2, 4, 12)
+]
 
 MAX_LEVEL = len(LEVEL_SIZES)
 
@@ -55,6 +66,7 @@ PLAYER = "P"
 ALLY = "P"
 KEY = "K"
 EXIT = "E"
+MINOTAUR = "M"
 HUNTER = "H"
 WANDERER = "W"
 FREEZE = "*"
@@ -76,7 +88,11 @@ PLAYER_ID_LENGTH = 6
 
 MONSTER_MIN_SPAWN_DISTANCE = 7
 
+MINOTAUR_JUMP_RANGE = 6
+MINOTAUR_REST_TURNS = 3
+
 HUNTER_STEP_RATE = 1
+
 WANDERER_STEP_RATE = 1
 WANDERER_CHASE_BFS_STEPS = 5
 
