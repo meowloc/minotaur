@@ -1,4 +1,4 @@
-"""Проверки системных команд игрового сервера."""
+"""Проверки регистрации, выхода и команд лобби игрового сервера."""
 
 import subprocess
 import sys
@@ -92,3 +92,53 @@ def test_connection_lost():
         assert not worker.is_alive()
         assert game.players == {}
         assert game.sessions == {}
+
+
+def receive_update(client, player_id):
+    """Прочитать обновление состава, подтвердить его и вернуть данные лобби."""
+    seen = getattr(client, "seen_updates", set())
+    client.seen_updates = seen
+    while True:
+        packet = read_packet(client, 3)
+        assert packet["type"] == "req"
+        assert packet["topic"] == "lobby"
+        assert packet["cmdid"] == "update"
+        assert packet["id"] == player_id
+        ack = dict(packet, type="resp", data={"ok": True})
+        client.sendline(encode_packet(ack))
+        if packet["num"] not in seen:
+            seen.add(packet["num"])
+            return packet["data"]["lobby"]
+
+
+@pytest.mark.parametrize("lost_connection", [False, True])
+def test_lobby(port, lost_connection):
+    """После выхода или обрыва связи хозяина второй игрок получает лобби."""
+    host_id, guest_id = "6a0613", "5b71af"
+    with remote("127.0.0.1", port) as host, remote("127.0.0.1", port) as guest:
+        request(host, 1, "system", "hello", host_id, {"nick": "Max"})
+        request(guest, 1, "system", "hello", guest_id, {"nick": "Mira"})
+        denied = request(guest, 6, "lobby", "update", guest_id, {})
+        assert denied == {"ok": False, "error": "Вы не в лобби."}
+        lobby = request(host, 2, "lobby", "create", host_id, {})["lobby"]
+        assert lobby == dict(lobby_id=1, name="Max", host_id=host_id,
+                             players={host_id: "Max"})
+        listed = request(guest, 2, "lobby", "list", guest_id, {})
+        assert listed["lobbies"] == [lobby]
+        target = {"lobby_id": 1}
+        joined = request(guest, 3, "lobby", "join", guest_id, target)["lobby"]
+        assert joined["players"] == {host_id: "Max", guest_id: "Mira"}
+        assert receive_update(host, host_id) == joined
+        assert request(host, 7, "lobby", "update", host_id, {}) == {"ok": True}
+        assert receive_update(host, host_id) == joined
+        assert receive_update(guest, guest_id) == joined
+        if lost_connection:
+            host.close()
+        else:
+            assert request(host, 3, "lobby", "leave", host_id, {})["ok"]
+        remaining = receive_update(guest, guest_id)
+        assert remaining["host_id"] == guest_id
+        assert remaining["players"] == {guest_id: "Mira"}
+        assert request(guest, 4, "lobby", "leave", guest_id, {})["ok"]
+        listed = request(guest, 5, "lobby", "list", guest_id, {})
+        assert listed["lobbies"] == []
