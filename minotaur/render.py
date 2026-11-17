@@ -5,29 +5,30 @@
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 from colorama import Fore, Style
 
 from minotaur.constants import (
+    COMPASS,
+    EXIT,
+    FILE_WALL,
+    FREEZE,
+    HUNTER,
+    KEY,
     MAX_LEVEL,
     PLAYER,
-    KEY,
-    EXIT,
-    HUNTER,
-    WANDERER,
-    FREEZE,
     TORCH,
-    COMPASS,
-    WALL_VERTICAL,
-    WALL_HORIZONTAL,
     WALL_CORNER,
-    FILE_WALL,
+    WALL_HORIZONTAL,
+    WALL_VERTICAL,
 )
+from minotaur.custom_types import Cell
 
 if TYPE_CHECKING:  # pragma: no cover
+    from minotaur.custom_types import Maze
     from minotaur.game import GameState
-    from minotaur.custom_types import Cell, Maze
 
 
 # Палитра цветов. Значение — пара (цвет, стиль).
@@ -65,7 +66,7 @@ def _paint(symbol: str, color_key: str, color: bool) -> str:
     return f"{st}{fg}{symbol}{Style.RESET_ALL}"
 
 
-def _is_wall(maze: "Maze", row: int, col: int) -> bool:
+def _is_wall(maze: Maze, row: int, col: int) -> bool:
     """Проверяет, что клетка в границах и это стена.
 
     Args:
@@ -85,7 +86,7 @@ def _is_wall(maze: "Maze", row: int, col: int) -> bool:
     return maze[row][col] == FILE_WALL
 
 
-def _wall_symbol(maze: "Maze", row: int, col: int) -> str:
+def _wall_symbol(maze: Maze, row: int, col: int) -> str:
     """Подбирает символ стены по соседям.
 
     Логика:
@@ -105,8 +106,10 @@ def _wall_symbol(maze: "Maze", row: int, col: int) -> str:
     right = _is_wall(maze, row, col + 1)
     up = _is_wall(maze, row - 1, col)
     down = _is_wall(maze, row + 1, col)
+
     horizontal = left or right
     vertical = up or down
+
     if horizontal and vertical:
         return WALL_CORNER
     if horizontal:
@@ -117,7 +120,7 @@ def _wall_symbol(maze: "Maze", row: int, col: int) -> str:
 
 
 def _symbol_at(
-    state: "GameState",
+    state: GameState,
     row: int,
     col: int,
     visible: set,
@@ -138,18 +141,19 @@ def _symbol_at(
     Returns:
         Пара (символ, ключ цвета).
     """
-    from minotaur.custom_types import Cell
-
     cell = Cell(row, col)
 
     if cell == state.level.player:
         return PLAYER, "player"
+
     if not memory:
         for sym, pos in state.level.monsters:
             if pos == cell:
                 return sym, "hunter" if sym == HUNTER else "wanderer"
+
     if state.level.key is not None and cell == state.level.key:
         return KEY, "key"
+
     bonus = state.level.bonuses.get(cell)
     if bonus is not None:
         if bonus == FREEZE:
@@ -159,15 +163,18 @@ def _symbol_at(
         if bonus == COMPASS:
             return COMPASS, "compass"
         return bonus, "torch"
+
     if cell == state.level.exit:
         return EXIT, "exit"
+
     if cell in getattr(state, "compass_path", []):
         return "·", "compass_hint"
+
     return " ", "wall"
 
 
 def _render_cell(
-    state: "GameState",
+    state: GameState,
     row: int,
     col: int,
     visible: set,
@@ -187,8 +194,6 @@ def _render_cell(
     Returns:
         Строка — один символ с цветом.
     """
-    from minotaur.custom_types import Cell
-
     cell = Cell(row, col)
     maze = state.level.maze
 
@@ -208,7 +213,7 @@ def _render_cell(
     return _paint(sym, color_key, color)
 
 
-def _render_hud(state: "GameState") -> str:
+def _render_hud(state: GameState) -> str:
     """Собирает строки HUD.
 
     Args:
@@ -226,6 +231,7 @@ def _render_hud(state: "GameState") -> str:
     )
     torch = "да" if state.level.torch_active else "нет"
     compass = "активна" if state.compass_path else "нет"
+
     lines = [
         f"Уровень {level_num}/{MAX_LEVEL} | Счёт: {state.score} | "
         f"Ходы: {state.turn}",
@@ -235,7 +241,7 @@ def _render_hud(state: "GameState") -> str:
     return "\n".join(lines)
 
 
-def render(state: "GameState", color: bool = True) -> str:
+def render(state: GameState, color: bool = True) -> str:
     """Собирает готовый кадр (карта + HUD) в строку.
 
     Args:
@@ -270,24 +276,24 @@ def render(state: "GameState", color: bool = True) -> str:
             f"{COLORS['hud_accent'][1]}{COLORS['hud_accent'][0]}{hud}"
             f"{Style.RESET_ALL}"
         )
+
     hint = (
         "w/a/s/d — движение, пробел — ждать, "
         "h — помощь, p — пауза"
     )
     if color:
         hint = _paint(hint, "hud", color)
+
     return "\n".join([*rows, "", hud, "", hint])
 
 
-def draw(state: "GameState", color: bool = True) -> None:
+def draw(state: GameState, color: bool = True) -> None:
     """Очищает экран и печатает кадр одним write.
 
     Args:
         state: Состояние игры.
         color: Включать ли цвет.
     """
-    import sys
-
     frame = render(state, color=color)
     sys.stdout.write("\033[H\033[J" + frame + "\n")
     sys.stdout.flush()
