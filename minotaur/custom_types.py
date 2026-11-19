@@ -52,7 +52,14 @@ class Player:
     is_connected: bool = False
     is_alive: bool = True
     is_ready: bool = False
+    help_used: bool = False
 
+    cells_status: dict[str, list[Cell]] = field(
+        default_factory=lambda: {
+            "active": [],
+            "discovered": []
+        }
+    )
     torch_active: bool = False
     compass_active: bool = False
 
@@ -83,6 +90,7 @@ class Level:
     monsters: list[tuple[str, Cell]] = field(default_factory=list)
     bonuses: dict[Cell, str] = field(default_factory=dict)
     freeze_turns: int = 0
+    is_pause_on: bool = False
 
     @property
     def is_key_taken(self) -> bool:
