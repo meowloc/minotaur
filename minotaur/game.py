@@ -45,11 +45,22 @@ def fog(game: GameState, player_id: str):
     distances = get_bfs_distances(game.level.maze,
                                   game.level.players[player_id].pos)
     player = game.level.players[player_id]
-    player.cells_status["active"] = [
-        cell for cell in distances
-        if distances[cell] <= constants.VIEW_RADIUS
-    ]
-    player.cells_status["explored"] = list(game.explored)
+
+    radius = constants.VIEW_RADIUS
+    if player.torch_active:
+        radius += constants.BONUS_TORCH_RADIUS
+
+    visible = {
+        cell for cell, distance in distances.items()
+        if distance <= radius
+    }
+
+    game.explored.update(visible)
+
+    player.cells_status["active"] = list(visible)
+    player.cells_status["explored"] = list(
+        game.explored - visible
+    )
 
 
 def move_player(direction: tuple, player_id: str, level: Level):
@@ -264,19 +275,19 @@ def step(game: GameState, player_id: str, action: str,
                 fog(game, player_id)
             if curr_level.key == curr_level.players[player_id].pos:
                 curr_level.key = None
-            if (curr_level.players[player_id].pos == curr_level.exit
-                    and curr_level.is_key_taken):
-                if all(
-                        player.pos == curr_level.exit or not player.is_alive
-                        for player in other_players.values()
-                ):
-                    win(game)
-                    for current_id in curr_level.players:
-                        player_score(game, current_id)
-                    return
-            elif (curr_level.players[player_id].pos == curr_level.exit
-                    and not curr_level.is_key_taken):
-                raise MovementError("Нельзя открыть выход без ключа!")
+            if curr_level.players[player_id].is_alive:
+                if (curr_level.players[player_id].pos == curr_level.exit
+                        and curr_level.is_key_taken):
+                    if all(
+                            player.pos == curr_level.exit
+                            or not player.is_alive
+                            for player in other_players.values()
+                    ):
+                        game.turn += 1
+                        win(game)
+                        for current_id in curr_level.players:
+                            player_score(game, current_id)
+                        return
             if curr_level.players[player_id].pos in curr_level.bonuses:
                 bonus = curr_level.bonuses.pop(
                     curr_level.players[player_id].pos
@@ -323,3 +334,6 @@ def step(game: GameState, player_id: str, action: str,
                     player_score(game, player)
                 return
             game.turn += 1
+            if (curr_level.players[player_id].pos == curr_level.exit
+                    and not curr_level.is_key_taken):
+                raise MovementError("Нельзя открыть выход без ключа!")

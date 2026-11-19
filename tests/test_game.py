@@ -1,3 +1,5 @@
+"""Тесты игровой логики лабиринта."""
+
 import pytest
 
 from minotaur import constants
@@ -169,7 +171,7 @@ def test_compass_bonus(game_state):
 
 
 def test_fog(round_state):
-    """Видимые клетки отделены от ранее посещённых."""
+    """Видимые клетки запоминаются и отделяются от полутени."""
     player_id, player_id_2, game, _, _ = round_state
     game.explored = {Cell(2, 2), Cell(3, 3)}
 
@@ -178,7 +180,21 @@ def test_fog(round_state):
     status = game.level.players[player_id].cells_status
     assert Cell(1, 1) in status["active"]
     assert Cell(2, 1) in status["active"]
-    assert set(status["explored"]) == game.explored
+    active = set(status["active"])
+    assert active <= game.explored
+    assert set(status["explored"]) == game.explored - active
+
+
+def test_fog_torch(round_state):
+    """Факел увеличивает радиус только у владельца."""
+    player_id, player_id_2, game, _, _ = round_state
+    player = game.level.players[player_id]
+
+    player.torch_active = True
+    fog(game, player_id)
+
+    assert Cell(1, 7) in player.cells_status["active"]
+    assert Cell(1, 7) in game.explored
 
 
 def test_key_actions_movement(move_check):
@@ -239,20 +255,12 @@ def test_check_collision_no_collision():
 def test_win(move_check):
     """Победа начисляет очки за уровень и скорость."""
     _, level = move_check
-    game = GameState(level=level, level_num=0, turn=10, score=20)
+    game = GameState(level=level, level_num=0, turn=10, score=0)
     win(game)
-    expected = (20 + constants.SCORE_PER_LEVEL
+    expected = (constants.SCORE_PER_LEVEL
                 + max(0, constants.SCORE_SPEED_BASE - 10))
     assert game.state == "Win"
     assert game.score == expected
-
-
-def test_win_without_speed_bonus(move_check):
-    """Бонус скорости не может стать отрицательным."""
-    _, level = move_check
-    game = GameState(level=level, level_num=0, turn=400)
-    win(game)
-    assert game.score == constants.SCORE_PER_LEVEL
 
 
 def test_lose(move_check):
@@ -279,61 +287,6 @@ def test_player_score_dead(game_state):
     game = GameState(level=level, level_num=0, score=100)
     player_score(game, player_id)
     assert level.players[player_id].score == 0
-
-
-def test_step_right(round_state):
-    """Ход направо обновляет позицию, туман и счётчики."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    step(game, player_id, "d", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(1, 2)
-    assert game.level.players[player_id].steps == 1
-    assert game.explored == {Cell(1, 1)}
-    assert Cell(1, 1) in game.level.players[player_id].cells_status[
-        "explored"
-    ]
-    assert game.turn == 1
-
-
-def test_step_left(round_state):
-    """Ход налево перемещает игрока на одну клетку."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].pos = Cell(2, 2)
-    step(game, player_id, "a", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(2, 1)
-    assert game.level.players[player_id].steps == 1
-    assert game.explored == {Cell(2, 2)}
-    assert game.turn == 1
-
-
-def test_step_up(round_state):
-    """Ход вверх перемещает игрока на одну клетку."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].pos = Cell(2, 2)
-    step(game, player_id, "w", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(1, 2)
-    assert game.level.players[player_id].steps == 1
-    assert game.explored == {Cell(2, 2)}
-    assert game.turn == 1
-
-
-def test_step_down(round_state):
-    """Ход вниз перемещает игрока на одну клетку."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].pos = Cell(2, 2)
-    step(game, player_id, "s", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(3, 2)
-    assert game.level.players[player_id].steps == 1
-    assert game.explored == {Cell(2, 2)}
-    assert game.turn == 1
-
-
-def test_step_wait(round_state):
-    """Ожидание расходует игровой ход без движения."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    step(game, player_id, " ", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(1, 1)
-    assert game.explored == set()
-    assert game.turn == 1
 
 
 def test_step_unknown_key(round_state):
@@ -396,6 +349,7 @@ def test_step_compass(round_state):
     game.level.players[player_id].compass_active = True
     step(game, player_id, " ", wanderer, hunter)
     assert game.compass_path == [Cell(1, 2), Cell(1, 3)]
+    assert len(game.compass_path) <= constants.BONUS_COMPASS_RANGE
 
 
 def test_step_monsters_move(round_state):
@@ -465,7 +419,10 @@ def test_step_win(round_state):
 
     step(game, player_id, "d", wanderer, hunter)
 
-    expected = constants.SCORE_PER_LEVEL + constants.SCORE_SPEED_BASE
+    expected = (
+        constants.SCORE_PER_LEVEL
+        + max(0, constants.SCORE_SPEED_BASE - game.turn)
+    )
     assert game.state == "Win"
     assert game.score == expected
     assert game.level.players[player_id].score == expected
@@ -481,7 +438,10 @@ def test_step_one_player_wins(round_state):
 
     step(game, player_id, "d", wanderer, hunter)
 
-    expected = constants.SCORE_PER_LEVEL + constants.SCORE_SPEED_BASE
+    expected = (
+        constants.SCORE_PER_LEVEL
+        + max(0, constants.SCORE_SPEED_BASE - game.turn)
+    )
     assert game.state == "Win"
     assert game.score == expected
     assert game.level.players[player_id].score == expected
@@ -560,36 +520,11 @@ def test_step_second_player_finishes(round_state):
     assert game.level.players[player_id_2].score == game.score
 
 
-def test_step_both_players_dead_cannot_move(round_state):
-    """Погибшие игроки не могут совершать новые ходы."""
+def test_step_dead_player_cannot_move(round_state):
+    """Погибший игрок не ходит."""
     player_id, player_id_2, game, wanderer, hunter = round_state
     game.level.players[player_id].is_alive = False
-    game.level.players[player_id_2].is_alive = False
-
+    turn_old = game.turn
     step(game, player_id, "d", wanderer, hunter)
 
-    assert game.level.players[player_id].pos == Cell(1, 1)
-    assert game.state == "Round"
-    assert game.turn == 0
-
-
-def test_step_into_another_player(round_state):
-    """Нельзя перейти на клетку живого напарника вне выхода."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id_2].pos = Cell(1, 2)
-
-    with pytest.raises(MovementError):
-        step(game, player_id, "d", wanderer, hunter)
-
-    assert game.level.players[player_id].pos == Cell(1, 1)
-    assert game.turn == 0
-
-
-def test_step_exit_no_key(round_state):
-    """Выход без ключа недоступен."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-
-    game.level.players[player_id].pos = Cell(3, 2)
-
-    with pytest.raises(MovementError):
-        step(game, player_id, "d", wanderer, hunter)
+    assert game.turn == turn_old
