@@ -1,7 +1,7 @@
-"""Монстры лабиринта: охотник и бродяга."""
+"""Монстры лабиринта: охотник, бродяга и Минотавр."""
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 from enum import Enum, auto
 
@@ -25,6 +25,18 @@ class Mode(Enum):
     CHASE = auto()
     SEARCH = auto()
     WANDER = auto()
+
+
+class Phase(Enum):
+    """Фазы Минотавра.
+
+    Attributes:
+        AIM: Метка поставлена, Минотавр готовится к прыжку.
+        REST: Минотавр отдыхает после прыжка.
+    """
+
+    AIM = auto()
+    REST = auto()
 
 
 @dataclass
@@ -305,3 +317,196 @@ class Wanderer(Monster):
 
         self.previous = self.position
         self.position = next_cell
+
+
+@dataclass
+class Minotaur(Monster):
+    """Босс 7-го уровня: метит область у игрока и прыгает в неё.
+
+    Минотавр не ходит по коридорам, а повторяет три фазы. Прицел:
+    выбирает ближайшего живого игрока и отмечает область 3 × 3 вокруг
+    клетки, куда приземлится. Через ``MINOTAUR_AIM_TURNS`` ходов он
+    прыгает туда через стены, но не дальше ``MINOTAUR_JUMP_RANGE``
+    клеток. Затем ``MINOTAUR_REST_TURNS`` ходов стоит на месте.
+    Заморозка останавливает все фазы и тем самым продлевает отдых.
+
+    Расстояния считаются по прямой, без учёта стен: сумма разностей
+    строк и столбцов.
+
+    Attributes:
+        symbol: Символ Минотавра на карте, ``MINOTAUR``.
+        step_rate: Минотавр действует каждый ход.
+        turns_until_move: Количество ходов, оставшихся до действия.
+        phase: Текущая фаза, ``None``, пока цель не выбрана.
+        turns_left: Сколько ходов осталось до конца текущей фазы.
+        landing: Клетка, куда Минотавр прыгнет, или ``None``.
+        mark: Клетки метки прыжка; пусто, если метки нет.
+        jump_area: Клетки, накрытые прыжком на этом ходу. Игроки
+            в них пойманы. Пусто во все остальные ходы.
+    """
+
+    symbol: ClassVar[str] = constants.MINOTAUR
+    step_rate: ClassVar[int] = 1
+    turns_until_move: int = 0
+    phase: Phase | None = None
+    turns_left: int = 0
+    landing: custom_types.Cell | None = None
+    mark: set[custom_types.Cell] = field(default_factory=set)
+    jump_area: set[custom_types.Cell] = field(default_factory=set)
+
+    def tick(
+        self,
+        maze: custom_types.Maze,
+        players: dict[str, custom_types.Player],
+        turn: int,
+        rng: random.Random,
+        is_freeze_active: bool = False,
+        key: custom_types.Cell | None = None,
+    ) -> None:
+        """Делает одно действие Минотавра, если нет заморозки.
+
+        Перед действием очищает ``jump_area``: область прыжка опасна
+        только в тот ход, когда Минотавр приземлился.
+
+        Args:
+            maze: Карта лабиринта.
+            players: Игроки, находящиеся в лабиринте.
+            turn: Номер текущего хода.
+            rng: Генератор случайных чисел для выбора клетки прыжка.
+            is_freeze_active: Активна ли заморозка.
+            key: Позиция ключа, Минотавром не используется.
+        """
+        self.jump_area = set()
+        super().tick(maze, players, turn, rng, is_freeze_active, key)
+
+    def _step(
+        self,
+        maze: custom_types.Maze,
+        players: dict[str, custom_types.Player],
+        turn: int,
+        rng: random.Random,
+        key: custom_types.Cell | None = None,
+    ) -> None:
+        """Переводит Минотавра по фазам: прицел, прыжок, отдых.
+
+        Args:
+            maze: Карта лабиринта.
+            players: Игроки, находящиеся в лабиринте.
+            turn: Номер текущего хода.
+            rng: Генератор случайных чисел для выбора клетки прыжка.
+            key: Позиция ключа, Минотавром не используется.
+        """
+        if self.phase is Phase.REST:
+            self.turns_left -= 1
+            if self.turns_left <= 0:
+                self.phase = None
+            return
+
+        if self.phase is Phase.AIM:
+            self.turns_left -= 1
+            if self.turns_left <= 0:
+                self._jump()
+            return
+
+        self._aim(maze, players, rng)
+
+    def _aim(
+        self,
+        maze: custom_types.Maze,
+        players: dict[str, custom_types.Player],
+        rng: random.Random,
+    ) -> None:
+        """Выбирает клетку прыжка и ставит метку вокруг неё.
+
+        Если живых игроков нет, Минотавр остаётся без цели.
+
+        Args:
+            maze: Карта лабиринта.
+            players: Игроки, находящиеся в лабиринте.
+            rng: Генератор случайных чисел для выбора клетки прыжка.
+        """
+        alive = [player.pos for player in players.values()
+                 if player.is_alive]
+        if not alive:
+            return
+
+        target = min(alive, key=lambda cell: _distance(self.position, cell))
+        self.landing = self._get_landing(maze, target, rng)
+        self.mark = _get_area(maze, self.landing)
+        self.phase = Phase.AIM
+        self.turns_left = constants.MINOTAUR_AIM_TURNS
+
+    def _get_landing(
+        self,
+        maze: custom_types.Maze,
+        target: custom_types.Cell,
+        rng: random.Random,
+    ) -> custom_types.Cell:
+        """Находит проход в пределах прыжка, ближайший к цели.landing
+
+        Args:
+            maze: Карта лабиринта.
+            target: Клетка, в которую Минотавр целится.
+            rng: Генератор случайных чисел для выбора среди равных.
+
+        Returns:
+            Сама цель, если она в пределах прыжка, иначе ближайший
+            к ней проход, до которого Минотавр допрыгнет.
+        """
+        reachable = [
+            custom_types.Cell(row, col)
+            for row in range(len(maze))
+            for col in range(len(maze[row]))
+            if maze[row][col] == constants.FILE_AIR
+            and _distance(self.position, custom_types.Cell(row, col))
+            <= constants.MINOTAUR_JUMP_RANGE
+        ]
+        best = min(_distance(cell, target) for cell in reachable)
+        return rng.choice([cell for cell in reachable
+                           if _distance(cell, target) == best])
+
+    def _jump(self) -> None:
+        """Прыгает на ``landing``, накрывает метку и уходит на отдых."""
+        self.position = self.landing
+        self.jump_area = self.mark
+        self.landing = None
+        self.mark = set()
+        self.phase = Phase.REST
+        self.turns_left = constants.MINOTAUR_REST_TURNS
+
+
+def _distance(first: custom_types.Cell, second: custom_types.Cell) -> int:
+    """Считает расстояние между клетками без учёта стен.
+
+    Args:
+        first: Первая клетка.
+        second: Вторая клетка.
+
+    Returns:
+        Сумма разностей строк и столбцов.
+    """
+    return abs(first.row - second.row) + abs(first.col - second.col)
+
+
+def _get_area(
+    maze: custom_types.Maze,
+    center: custom_types.Cell,
+) -> set[custom_types.Cell]:
+    """Возвращает проходы в квадрате 3 × 3 вокруг клетки.
+
+    Args:
+        maze: Карта лабиринта.
+        center: Центр квадрата.
+
+    Returns:
+        Клетки квадрата, которые лежат на карте и не являются стенами.
+    """
+    return {
+        custom_types.Cell(center.row + d_row, center.col + d_col)
+        for d_row in (-1, 0, 1)
+        for d_col in (-1, 0, 1)
+        if 0 <= center.row + d_row < len(maze)
+        and 0 <= center.col + d_col < len(maze[0])
+        and maze[center.row + d_row][center.col + d_col]
+        == constants.FILE_AIR
+    }
