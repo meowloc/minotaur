@@ -265,6 +265,8 @@ def step(game: GameState, player_id: str, action: str,
     if game.state != "Round":
         return
     curr_level = game.level
+    for monster_num, monster in enumerate(monsters_in_level):
+        curr_level.monsters[monster_num] = (monster.symbol, monster.position)
     if not curr_level.players[player_id].is_alive:
         return
     other_players = {
