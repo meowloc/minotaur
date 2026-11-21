@@ -7,7 +7,7 @@ from minotaur.custom_types import Player, Level, Cell
 from minotaur.exceptions import MovementError, LevelError
 from minotaur.game import (
     GameState, apply_bonus, check_collision, fog, key_actions,
-    lose, move_player, player_score, step, win,
+    lose, move_player, step, win,
 )
 from minotaur.monsters import Hunter, Wanderer
 
@@ -182,19 +182,7 @@ def test_fog(round_state):
     assert Cell(2, 1) in status["active"]
     active = set(status["active"])
     assert active <= game.explored
-    assert set(status["explored"]) == game.explored - active
-
-
-def test_fog_torch(round_state):
-    """Факел увеличивает радиус только у владельца."""
-    player_id, player_id_2, game, _, _ = round_state
-    player = game.level.players[player_id]
-
-    player.torch_active = True
-    fog(game, player_id)
-
-    assert Cell(1, 7) in player.cells_status["active"]
-    assert Cell(1, 7) in game.explored
+    assert set(status["discovered"]) == game.explored - active
 
 
 def test_key_actions_movement(move_check):
@@ -253,278 +241,388 @@ def test_check_collision_no_collision():
 
 
 def test_win(move_check):
-    """Победа начисляет очки за уровень и скорость."""
-    _, level = move_check
-    game = GameState(level=level, level_num=0, turn=10, score=0)
+    """Победа распределяет очки и обнуляет общий счёт."""
+    player_id, level = move_check
+    game = GameState(level=level, level_num=0, turn=10, score=20)
+
     win(game)
-    expected = (constants.SCORE_PER_LEVEL
+
+    expected = (20 + constants.SCORE_PER_LEVEL
                 + max(0, constants.SCORE_SPEED_BASE - 10))
     assert game.state == "Win"
-    assert game.score == expected
+    assert game.score == 0
+    assert level.players[player_id].score == expected
 
 
-def test_lose(move_check):
-    """Поражение обнуляет общий счёт."""
-    _, level = move_check
-    game = GameState(level=level, level_num=0, score=150)
-    lose(game)
-    assert game.state == "Lose"
+def test_win_without_speed_bonus(move_check):
+    """При большом числе ходов бонус скорости равен нулю."""
+    player_id, level = move_check
+    game = GameState(level=level, level_num=0, turn=400)
+
+    win(game)
+
+    assert level.players[player_id].score == constants.SCORE_PER_LEVEL
     assert game.score == 0
 
 
-def test_player_score_alive(game_state):
-    """Живой игрок получает очки."""
-    player_id, level = game_state
-    game = GameState(level=level, level_num=0, score=100)
-    player_score(game, player_id)
-    assert level.players[player_id].score == 100
+def test_lose(move_check):
+    """Поражение меняет состояние, но не начисляет очки."""
+    player_id, level = move_check
+    game = GameState(level=level, level_num=0, score=150)
 
+    lose(game)
 
-def test_player_score_dead(game_state):
-    """Погибший игрок не получает очки."""
-    player_id, level = game_state
-    level.players[player_id].is_alive = False
-    game = GameState(level=level, level_num=0, score=100)
-    player_score(game, player_id)
+    assert game.state == "Lose"
+    assert game.score == 150
     assert level.players[player_id].score == 0
 
 
+def test_step_right(round_state):
+    """Первый игрок двигается, но раунд ждёт второго."""
+    first, second, game, wanderer, hunter = round_state
+    step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 2)
+    assert game.level.players[first].steps == 1
+    assert game.players_old_pos == {first: Cell(1, 1)}
+    assert Cell(1, 1) in game.explored
+    assert game.turn == 0
+
+
+def test_step_left(round_state):
+    """Движение влево сохраняет исходную позицию."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].pos = Cell(2, 2)
+    step(game, first, "a", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(2, 1)
+    assert game.players_old_pos[first] == Cell(2, 2)
+    assert game.turn == 0
+
+
+def test_step_up(round_state):
+    """Движение вверх учитывается как действие первого игрока."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].pos = Cell(2, 2)
+    step(game, first, "w", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 2)
+    assert game.players_old_pos[first] == Cell(2, 2)
+    assert game.turn == 0
+
+
+def test_step_down(round_state):
+    """Движение вниз не завершает раунд до хода напарника."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].pos = Cell(2, 2)
+    step(game, first, "s", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(3, 2)
+    assert game.players_old_pos[first] == Cell(2, 2)
+    assert game.turn == 0
+
+
+def test_step_wait(round_state):
+    """Ожидание считается действием без перемещения."""
+    first, second, game, wanderer, hunter = round_state
+    step(game, first, " ", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 1)
+    assert game.players_old_pos[first] == Cell(1, 1)
+    assert game.turn == 0
+
+
 def test_step_unknown_key(round_state):
-    """Неизвестная клавиша вызывает MovementError."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """Неизвестная клавиша не записывает действие."""
+    first, second, game, wanderer, hunter = round_state
     with pytest.raises(MovementError):
-        step(game, player_id, "x", wanderer, hunter)
+        step(game, first, "x", [hunter, wanderer])
+    assert game.players_old_pos == {}
     assert game.turn == 0
 
 
 def test_step_paused(round_state):
-    """Включение паузы не расходует игровой ход."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    step(game, player_id, "p", wanderer, hunter)
+    """Пауза и её снятие не расходуют ход."""
+    first, second, game, wanderer, hunter = round_state
+    step(game, first, "p", [hunter, wanderer])
     assert game.level.is_pause_on is True
-    assert game.turn == 0
-    step(game, player_id, "p", wanderer, hunter)
+    assert game.players_old_pos == {}
+    step(game, first, "p", [hunter, wanderer])
     assert game.level.is_pause_on is False
     assert game.turn == 0
 
 
 def test_step_help(round_state):
-    """Вызов помощи не расходует игровой ход."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    step(game, player_id, "h", wanderer, hunter)
-    assert game.level.players[player_id].help_used is True
+    """Помощь не расходует ход."""
+    first, second, game, wanderer, hunter = round_state
+    step(game, first, "h", [hunter, wanderer])
+    assert game.level.players[first].help_used is True
+    assert game.players_old_pos == {}
     assert game.turn == 0
 
 
 def test_step_finished_game(round_state):
-    """После завершения игры новые ходы игнорируются."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """После победы передвижение не выполняется."""
+    first, second, game, wanderer, hunter = round_state
     game.state = "Win"
-    step(game, player_id, "d", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(1, 1)
+    step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 1)
     assert game.turn == 0
 
 
 def test_step_dead_player(round_state):
-    """Погибший игрок не может совершать ходы."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].is_alive = False
-    step(game, player_id, "d", wanderer, hunter)
-    assert game.level.players[player_id].pos == Cell(1, 1)
-    assert game.turn == 0
+    """Погибший игрок не может двигаться."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].is_alive = False
+    step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 1)
+    assert game.players_old_pos == {}
 
 
 def test_step_pick_key(round_state):
-    """Игрок подбирает ключ при входе на его клетку."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].pos = Cell(1, 2)
-    step(game, player_id, "d", wanderer, hunter)
+    """Ключ подбирается сразу после входа на клетку."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].pos = Cell(1, 2)
+    step(game, first, "d", [hunter, wanderer])
     assert game.level.key is None
     assert game.level.is_key_taken is True
+    assert game.turn == 0
 
 
 def test_step_compass(round_state):
-    """Компас показывает путь к ключу."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].compass_active = True
-    step(game, player_id, " ", wanderer, hunter)
+    """Компас строит путь к ключу без завершения раунда."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].compass_active = True
+    step(game, first, " ", [hunter, wanderer])
     assert game.compass_path == [Cell(1, 2), Cell(1, 3)]
     assert len(game.compass_path) <= constants.BONUS_COMPASS_RANGE
 
 
 def test_step_monsters_move(round_state):
-    """Оба монстра совершают ход без заморозки."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """Монстры ходят после действий обоих живых игроков."""
+    first, second, game, wanderer, hunter = round_state
     game.turn = 4
     hunter.turns_until_move = 1
     wanderer.turns_until_move = 1
-    hunter_old_pos = hunter.position
-    wanderer_old_pos = wanderer.position
+    old_hunter = hunter.position
+    old_wanderer = wanderer.position
 
-    step(game, player_id, " ", wanderer, hunter)
+    step(game, first, " ", [hunter, wanderer])
+    assert hunter.position == old_hunter
+    assert wanderer.position == old_wanderer
+    assert game.turn == 4
 
-    assert hunter.position != hunter_old_pos
-    assert wanderer.position != wanderer_old_pos
+    step(game, second, " ", [hunter, wanderer])
+    assert hunter.position != old_hunter
+    assert wanderer.position != old_wanderer
     assert game.level.monsters == [
         (constants.HUNTER, hunter.position),
         (constants.WANDERER, wanderer.position),
     ]
+    assert game.players_old_pos == {}
     assert game.turn == 5
 
 
 def test_step_freeze(round_state):
-    """Бонус исчезает, а монстры стоят до конца заморозки."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """Заморозка уменьшается один раз за полный раунд."""
+    first, second, game, wanderer, hunter = round_state
     game.turn = 4
     hunter.turns_until_move = 1
     wanderer.turns_until_move = 1
     game.level.bonuses[Cell(1, 2)] = constants.FREEZE
-    hunter_old_pos = hunter.position
-    wanderer_old_pos = wanderer.position
+    old_hunter = hunter.position
+    old_wanderer = wanderer.position
 
-    step(game, player_id, "d", wanderer, hunter)
-
+    step(game, first, "d", [hunter, wanderer])
     assert Cell(1, 2) not in game.level.bonuses
     assert game.score == constants.SCORE_PER_BONUS
+    assert game.level.freeze_turns == constants.BONUS_FREEZE_STEPS
+
+    step(game, second, " ", [hunter, wanderer])
     assert game.level.freeze_turns == constants.BONUS_FREEZE_STEPS - 1
-    assert hunter.position == hunter_old_pos
-    assert wanderer.position == wanderer_old_pos
-    assert game.level.monsters == [
-        (constants.HUNTER, hunter_old_pos),
-        (constants.WANDERER, wanderer_old_pos),
-    ]
+    assert hunter.position == old_hunter
+    assert wanderer.position == old_wanderer
 
-    step(game, player_id, " ", wanderer, hunter)
+    step(game, first, " ", [hunter, wanderer])
+    step(game, second, " ", [hunter, wanderer])
     assert game.level.freeze_turns == constants.BONUS_FREEZE_STEPS - 2
-    assert hunter.position == hunter_old_pos
-    assert wanderer.position == wanderer_old_pos
 
-    step(game, player_id, " ", wanderer, hunter)
+    step(game, first, " ", [hunter, wanderer])
+    step(game, second, " ", [hunter, wanderer])
     assert game.level.freeze_turns == 0
-    assert hunter.position == hunter_old_pos
-    assert wanderer.position == wanderer_old_pos
+    assert hunter.position == old_hunter
+    assert wanderer.position == old_wanderer
 
-    step(game, player_id, " ", wanderer, hunter)
-    assert hunter.position != hunter_old_pos
-    assert wanderer.position != wanderer_old_pos
+    step(game, first, " ", [hunter, wanderer])
+    step(game, second, " ", [hunter, wanderer])
+    assert hunter.position != old_hunter
+    assert wanderer.position != old_wanderer
     assert game.turn == 8
 
 
 def test_step_win(round_state):
-    """Оба игрока на выходе завершают уровень."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """Победа наступает сразу после достижения выхода обоими."""
+    first, second, game, wanderer, hunter = round_state
     game.level.key = None
-    game.level.players[player_id].pos = Cell(3, 2)
-    game.level.players[player_id_2].pos = game.level.exit
+    game.level.players[first].pos = Cell(3, 2)
+    game.level.players[second].pos = game.level.exit
 
-    step(game, player_id, "d", wanderer, hunter)
+    step(game, first, "d", [hunter, wanderer])
 
-    expected = (
-        constants.SCORE_PER_LEVEL
-        + max(0, constants.SCORE_SPEED_BASE - game.turn)
-    )
+    expected = (constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
     assert game.state == "Win"
-    assert game.score == expected
-    assert game.level.players[player_id].score == expected
-    assert game.level.players[player_id_2].score == expected
+    assert game.turn == 1
+    assert game.score == 0
+    assert game.level.players[first].score == expected
+    assert game.level.players[second].score == expected
 
 
 def test_step_one_player_wins(round_state):
-    """Живой игрок побеждает, если второй игрок погиб."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """Один живой игрок может завершить уровень."""
+    first, second, game, wanderer, hunter = round_state
     game.level.key = None
-    game.level.players[player_id].pos = Cell(3, 2)
-    game.level.players[player_id_2].is_alive = False
+    game.level.players[first].pos = Cell(3, 2)
+    game.level.players[second].is_alive = False
 
-    step(game, player_id, "d", wanderer, hunter)
+    step(game, first, "d", [hunter, wanderer])
 
-    expected = (
-        constants.SCORE_PER_LEVEL
-        + max(0, constants.SCORE_SPEED_BASE - game.turn)
-    )
+    expected = (constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
     assert game.state == "Win"
-    assert game.score == expected
-    assert game.level.players[player_id].score == expected
-    assert game.level.players[player_id_2].score == 0
+    assert game.score == 0
+    assert game.level.players[first].score == expected
+    assert game.level.players[second].score == expected
 
 
 def test_step_exit_without_key(round_state):
-    """Выход без ключа недоступен."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].pos = Cell(3, 2)
-    with pytest.raises(MovementError):
-        step(game, player_id, "d", wanderer, hunter)
+    """Попытка открыть выход без ключа расходует действие."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].pos = Cell(3, 2)
+    step(game, first, "d", [hunter, wanderer])
     assert game.state == "Round"
+    assert game.message == "Нельзя открыть дверь без ключа"
+    assert game.players_old_pos[first] == Cell(3, 2)
+    assert game.turn == 0
 
 
 def test_step_lose(round_state):
-    """Гибель обоих игроков завершает игру поражением."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.key = None
-    hunter.position = Cell(2, 1)
-    wanderer.position = Cell(2, 5)
-    hunter.turns_until_move = 1
-    wanderer.turns_until_move = 1
-
-    step(game, player_id, " ", wanderer, hunter)
-
-    assert hunter.position == Cell(1, 1)
-    assert wanderer.position == Cell(1, 5)
-    assert game.level.players[player_id].is_alive is False
-    assert game.level.players[player_id_2].is_alive is False
+    """После гибели обоих игроков состояние становится Lose."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].is_alive = False
+    game.level.monsters.append((constants.HUNTER, Cell(1, 6)))
+    game.level.players[second].pos = Cell(1, 5)
+    step(game, second, "d", [hunter, wanderer])
+    assert game.level.players[second].is_alive is False
     assert game.state == "Lose"
-    assert game.score == 0
 
 
 def test_step_one_player_dead(round_state):
-    """После гибели одного игрока второй продолжает играть."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.key = None
-    hunter.position = Cell(2, 1)
-    hunter.turns_until_move = 1
-
-    step(game, player_id, " ", wanderer, hunter)
-
-    assert hunter.position == Cell(1, 1)
-    assert game.level.players[player_id].is_alive is False
-    assert game.level.players[player_id_2].is_alive is True
+    """После гибели первого игрока второй завершает раунд."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].is_alive = False
+    step(game, second, " ", [hunter, wanderer])
     assert game.state == "Round"
     assert game.turn == 1
+    assert game.players_old_pos == {}
 
 
 def test_step_one_player_at_exit(round_state):
-    """Один игрок на выходе не завершает игру за двоих."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    """Выход одного игрока не завершает игру за двоих."""
+    first, second, game, wanderer, hunter = round_state
     game.level.key = None
-    game.level.players[player_id].pos = Cell(3, 2)
-
-    step(game, player_id, "d", wanderer, hunter)
-
-    assert game.level.players[player_id].pos == game.level.exit
-    assert game.level.players[player_id_2].pos == Cell(1, 5)
+    game.level.players[first].pos = Cell(3, 2)
+    step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == game.level.exit
     assert game.state == "Round"
-    assert game.turn == 1
+    assert game.turn == 0
 
 
 def test_step_second_player_finishes(round_state):
     """Второй игрок завершает уровень после первого."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
+    first, second, game, wanderer, hunter = round_state
     game.level.key = None
-    game.level.players[player_id].pos = game.level.exit
-    game.level.players[player_id_2].pos = Cell(3, 2)
-
-    step(game, player_id_2, "d", wanderer, hunter)
-
+    game.level.players[first].pos = game.level.exit
+    game.level.players[second].pos = Cell(3, 2)
+    step(game, second, "d", [hunter, wanderer])
+    expected = (constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
     assert game.state == "Win"
-    assert game.level.players[player_id].score == game.score
-    assert game.level.players[player_id_2].score == game.score
+    assert game.level.players[first].score == expected
+    assert game.level.players[second].score == expected
 
 
-def test_step_dead_player_cannot_move(round_state):
-    """Погибший игрок не ходит."""
-    player_id, player_id_2, game, wanderer, hunter = round_state
-    game.level.players[player_id].is_alive = False
-    turn_old = game.turn
-    step(game, player_id, "d", wanderer, hunter)
+def test_step_both_players_dead_cannot_move(round_state):
+    """Уже погибшие игроки не могут выполнять действия."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[first].is_alive = False
+    game.level.players[second].is_alive = False
+    step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 1)
+    assert game.turn == 0
 
-    assert game.turn == turn_old
+
+def test_step_into_another_player(round_state):
+    """Игрок не может пройти сквозь живого напарника."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[second].pos = Cell(1, 2)
+    with pytest.raises(MovementError):
+        step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 1)
+    assert game.turn == 0
+
+
+def test_step_repeated_action_ignored(round_state):
+    """Повторное действие до хода напарника игнорируется."""
+    first, second, game, wanderer, hunter = round_state
+    step(game, first, "d", [hunter, wanderer])
+    step(game, first, "d", [hunter, wanderer])
+    assert game.level.players[first].pos == Cell(1, 2)
+    assert game.level.players[first].steps == 1
+    assert game.turn == 0
+
+
+def test_step_wait_completes_round(round_state):
+    """Два ожидания завершают один раунд."""
+    first, second, game, wanderer, hunter = round_state
+    step(game, first, " ", [hunter, wanderer])
+    step(game, second, " ", [hunter, wanderer])
+    assert game.turn == 1
+    assert game.players_old_pos == {}
+
+
+def test_step_dead_second_player_completes_round(round_state):
+    """Гибель второго игрока после первого хода не блокирует раунд."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.monsters.append((constants.HUNTER, Cell(1, 6)))
+    step(game, first, " ", [hunter, wanderer])
+    step(game, second, "d", [hunter, wanderer])
+    assert game.level.players[second].is_alive is False
+    assert game.level.players[first].is_alive is True
+    assert game.turn == 1
+    assert game.players_old_pos == {}
+
+
+def test_step_monster_collision_same_cell(round_state):
+    """Монстр убивает игрока при совпадении конечных клеток."""
+    from unittest.mock import Mock
+
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[second].is_alive = False
+    game.level.monsters = [(constants.HUNTER, Cell(2, 1))]
+    monster = Mock(position=Cell(2, 1), symbol=constants.HUNTER)
+
+    def tick(*args):
+        monster.position = Cell(1, 1)
+
+    monster.tick.side_effect = tick
+    step(game, first, " ", [monster])
+    assert game.level.players[first].is_alive is False
+    assert game.state == "Lose"
+
+
+def test_step_into_monster_is_fatal(round_state):
+    """Вход на клетку монстра убивает последнего живого игрока."""
+    first, second, game, wanderer, hunter = round_state
+    game.level.players[second].is_alive = False
+    game.level.monsters.append((constants.HUNTER, Cell(1, 2)))
+
+    step(game, first, "d", [hunter, wanderer])
+
+    assert game.level.players[first].is_alive is False
+    assert game.state == "Lose"

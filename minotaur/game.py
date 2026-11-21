@@ -4,7 +4,7 @@ import random
 from minotaur import constants
 from minotaur.custom_types import Level, Cell
 from minotaur.exceptions import MovementError, LevelError
-from minotaur.monsters import Hunter, Wanderer
+from minotaur.monsters import Monster
 from minotaur.pathfinding import get_shortest_path, get_bfs_distances
 
 
@@ -15,11 +15,14 @@ class GameState:
     Attributes:
         level: Текущий уровень с лабиринтом и игроками.
         level_num: Номер текущего уровня.
-        state: Состояние игры: Round, Win или Lose.
+        state: Состояние игры: Round/Win/Lose.
         explored: Множество исследованных клеток лабиринта.
         compass_path: Маршрут компаса до ключа или выхода.
+        players_old_pos: Исходные позиции игроков текущего раунда.
         turn: Количество выполненных игровых ходов.
         score: Количество набранных очков.
+        message: Сообщение о результате последнего действия.
+        rng: Генератор случайных чисел для поведения монстров.
     """
 
     level: Level
@@ -27,21 +30,27 @@ class GameState:
     state: str = "Round"
     explored: set[Cell] = field(default_factory=set)
     compass_path: list[Cell] = field(default_factory=list)
+    players_old_pos: dict[str, Cell] = field(default_factory=dict)
     turn: int = 0
     score: int = 0
+    message: str = ""
+    rng: random.Random = field(
+        default_factory=lambda: random.Random(0)
+    )
 
 
 def fog(game: GameState, player_id: str):
-    """Обновляет видимые и исследованные клетки лабиринта.
+    """Обновляет видимость клеток лабиринта.
 
-    Определяет расстояния от игрока до доступных клеток.
-    Сохраняет клетки в пределах радиуса обзора
-    и ранее исследованные клетки.
+        Вычисляет расстояния от игрока до доступных клеток.
+        Факел увеличивает радиус обзора только для его владельца.
+        Видимые клетки добавляются к ранее исследованным.
+        Клетки вне текущего обзора сохраняются в полутени.
 
-    Args:
-        game: Текущее состояние игры.
-        player_id: ID игрока, для которого обновляется видимость.
-    """
+        Args:
+            game: Текущее состояние игры.
+            player_id: ID игрока, для которого обновляется видимость.
+        """
     distances = get_bfs_distances(game.level.maze,
                                   game.level.players[player_id].pos)
     player = game.level.players[player_id]
@@ -58,7 +67,7 @@ def fog(game: GameState, player_id: str):
     game.explored.update(visible)
 
     player.cells_status["active"] = list(visible)
-    player.cells_status["explored"] = list(
+    player.cells_status["discovered"] = list(
         game.explored - visible
     )
 
@@ -182,28 +191,29 @@ def check_collision(player_old_pos: Cell, monster_old_pos: Cell,
 def lose(game: GameState):
     """Обрабатывает поражение игроков.
 
-    Обнуляет набранные очки и устанавливает
-    состояние игры Lose.
+    Устанавливает состояние поражения, когда все игроки погибли.
 
     Args:
         game: Текущее состояние игры.
     """
-    game.score = 0
     game.state = "Lose"
 
 
-def player_score(game: GameState, player_id: str):
+def player_score(game: GameState):
     """Начисляет игроку очки за прохождение игры.
 
-    Если игрок жив, добавляет ему очки из общего счёта.
-    Если игрок погиб, его счёт остаётся без изменений.
+    Добавляет каждому игроку очки из общего счёта.
 
     Args:
         game: Текущее состояние игры.
-        player_id: ID игрока, которому начисляются очки.
     """
-    if game.level.players[player_id].is_alive:
-        game.level.players[player_id].score += game.score
+    if game.state == "Win":
+        game.score = (game.score
+                      + constants.SCORE_PER_LEVEL
+                      + max(0, constants.SCORE_SPEED_BASE - game.turn))
+    for player in game.level.players.values():
+        player.score += game.score
+    game.score = 0
 
 
 def win(game: GameState):
@@ -216,34 +226,38 @@ def win(game: GameState):
     Args:
         game: Текущее состояние игры.
     """
-    game.score = (game.score
-                  + constants.SCORE_PER_LEVEL
-                  + max(0, constants.SCORE_SPEED_BASE - game.turn))
     game.state = "Win"
+    player_score(game)
 
 
 def step(game: GameState, player_id: str, action: str,
-         wanderer: Wanderer, hunter: Hunter) -> None:
-    """Выполняет один игровой ход.
+         monsters_in_level: list[Monster]) -> None:
+    """Выполняет действие игрока и обновляет состояние раунда.
 
-    Обрабатывает действие игрока, исследованные клетки,
-    подбор ключа и бонусов, обновление маршрута компаса,
-    движение монстров и столкновения.
+    Обрабатывает движение, ожидание, паузу и вызов помощи.
+    Сохраняет исходную позицию игрока для проверки столкновений.
+    Обновляет туман войны, подбирает ключ и применяет бонусы.
+    Пересчитывает маршрут компаса при его наличии.
 
-    Проверяет условия победы и поражения, обновляет
-    счёт и номер текущего хода.
+    После действий всех живых игроков перемещает монстров.
+    Проверяет столкновения, включая обмен позициями.
+    Учитывает заморозку монстров и уменьшает её длительность.
+    Проверяет условия победы и поражения.
+    При завершении раунда увеличивает счётчик ходов.
 
     Args:
         game: Текущее состояние игры.
-        player_id: ID игрока, выполняющего ход.
+        player_id: ID игрока, выполняющего действие.
         action: Нажатая клавиша.
-        wanderer: Блуждающий монстр.
-        hunter: Преследующий монстр.
+        monsters_in_level: Монстры текущего уровня.
 
     Raises:
-        MovementError: Если клавиша неизвестна,
-            действие запрещено или выход закрыт.
+        MovementError: Если клавиша неизвестна или ход невозможен.
     """
+    if game.turn == 0:
+        fog(game, player_id)
+    if player_id in game.players_old_pos:
+        return
     if game.state != "Round":
         return
     curr_level = game.level
@@ -256,8 +270,6 @@ def step(game: GameState, player_id: str, action: str,
     }
     curr_level.players[player_id].help_used = False
     player_old_pos = curr_level.players[player_id].pos
-    wanderer_old_pos = wanderer.position
-    hunter_old_pos = hunter.position
     if action not in constants.KEY_BINDINGS:
         raise MovementError(f"Клавиша {action} не находится в константах!")
     else:
@@ -270,24 +282,26 @@ def step(game: GameState, player_id: str, action: str,
         elif constants.KEY_BINDINGS[action] == "pause":
             return
         else:
-            if player_old_pos != curr_level.players[player_id].pos:
-                game.explored.add(player_old_pos)
+            game.players_old_pos[player_id] = player_old_pos
+            if (game.players_old_pos[player_id]
+                    != curr_level.players[player_id].pos):
+                game.explored.add(game.players_old_pos[player_id])
                 fog(game, player_id)
             if curr_level.key == curr_level.players[player_id].pos:
                 curr_level.key = None
-            if curr_level.players[player_id].is_alive:
-                if (curr_level.players[player_id].pos == curr_level.exit
-                        and curr_level.is_key_taken):
-                    if all(
-                            player.pos == curr_level.exit
-                            or not player.is_alive
-                            for player in other_players.values()
-                    ):
-                        game.turn += 1
-                        win(game)
-                        for current_id in curr_level.players:
-                            player_score(game, current_id)
-                        return
+            if (curr_level.players[player_id].pos == curr_level.exit
+                    and curr_level.is_key_taken):
+                if all(
+                        player.pos == curr_level.exit
+                        or not player.is_alive
+                        for player in other_players.values()
+                ):
+                    game.turn += 1
+                    win(game)
+                    return
+            if (curr_level.players[player_id].pos == curr_level.exit
+                    and not curr_level.is_key_taken):
+                game.message = "Нельзя открыть дверь без ключа"
             if curr_level.players[player_id].pos in curr_level.bonuses:
                 bonus = curr_level.bonuses.pop(
                     curr_level.players[player_id].pos
@@ -304,36 +318,42 @@ def step(game: GameState, player_id: str, action: str,
                     constants.BONUS_COMPASS_RANGE
                 )
             is_freeze_active = curr_level.freeze_turns > 0
-            hunter.tick(curr_level.maze, curr_level.players,
-                        game.turn, random.Random(0),
-                        is_freeze_active, curr_level.key)
-            wanderer.tick(curr_level.maze, curr_level.players,
-                          game.turn, random.Random(0),
-                          is_freeze_active, curr_level.key)
-            curr_level.monsters = [(hunter.symbol, hunter.position),
-                                   (wanderer.symbol, wanderer.position)]
+            alive_ids = {
+                curr_id for curr_id, player in curr_level.players.items()
+                if player.is_alive
+            }
+            if not alive_ids <= game.players_old_pos.keys():
+                return
+            for monster_num, monster in enumerate(monsters_in_level):
+                monster_old_pos = monster.position
+                monster.tick(
+                    curr_level.maze,
+                    curr_level.players,
+                    game.turn,
+                    game.rng,
+                    is_freeze_active,
+                    curr_level.key
+                )
+                for curr_id, player in curr_level.players.items():
+                    if not player.is_alive:
+                        continue
+                    if check_collision(
+                        game.players_old_pos[curr_id],
+                        monster_old_pos,
+                        player.pos,
+                        monster.position
+                    ):
+                        player.is_alive = False
+
+                curr_level.monsters[monster_num] = (
+                    monster.symbol,
+                    monster.position
+                )
             if is_freeze_active:
                 curr_level.freeze_turns -= 1
-            if ((check_collision(player_old_pos, wanderer_old_pos,
-                                 curr_level.players[player_id].pos,
-                                 wanderer.position))
-                    or (check_collision(player_old_pos, hunter_old_pos,
-                                        curr_level.players[player_id].pos,
-                                        hunter.position))):
-                curr_level.players[player_id].is_alive = False
-            for player in other_players.values():
-                if (check_collision(player.pos, wanderer_old_pos,
-                                    player.pos, wanderer.position)
-                        or check_collision(player.pos, hunter_old_pos,
-                                           player.pos, hunter.position)):
-                    player.is_alive = False
             if all(not player.is_alive
                    for player in curr_level.players.values()):
                 lose(game)
-                for player in curr_level.players.keys():
-                    player_score(game, player)
                 return
+            game.players_old_pos.clear()
             game.turn += 1
-            if (curr_level.players[player_id].pos == curr_level.exit
-                    and not curr_level.is_key_taken):
-                raise MovementError("Нельзя открыть выход без ключа!")
