@@ -46,6 +46,7 @@ class Player:
             до конца уровня.
         steps: Количество совершённых игроком шагов.
         score: Количество набранных игроком очков.
+        score_from_bonuses: Количество набранных игроком очков за бонусы
     """
 
     pos: Cell
@@ -69,6 +70,7 @@ class Player:
 
     steps: int = 0
     score: int = 0
+    score_from_bonuses: int = 0
 
 
 @dataclass

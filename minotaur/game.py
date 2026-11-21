@@ -15,29 +15,27 @@ class GameState:
     Attributes:
         level: Текущий уровень с лабиринтом и игроками.
         level_num: Номер текущего уровня.
+        rng: Генератор случайных чисел для поведения монстров.
         state: Состояние игры: Round/Win/Lose.
         explored: Множество исследованных клеток лабиринта.
         players_old_pos: Исходные позиции игроков текущего раунда.
         turn: Количество выполненных игровых ходов.
         score: Количество набранных очков.
         message: Сообщение о результате последнего действия.
-        rng: Генератор случайных чисел для поведения монстров.
     """
 
     level: Level
     level_num: int
+    rng: random.Random
     state: str = "Round"
     explored: set[Cell] = field(default_factory=set)
     players_old_pos: dict[str, Cell] = field(default_factory=dict)
     turn: int = 0
     score: int = 0
     message: str = ""
-    rng: random.Random = field(
-        default_factory=random.Random
-    )
 
 
-def fog(game: GameState, player_id: str):
+def fog(game: GameState, player_id: str) -> None:
     """Обновляет освещённые клетки и полутень.
 
     Вычисляет расстояния от игрока до доступных клеток.
@@ -57,7 +55,7 @@ def fog(game: GameState, player_id: str):
     if player.torch_active:
         light_radius += constants.BONUS_TORCH_RADIUS
 
-    shadow_radius = light_radius + constants.VIEW_RADIUS
+    shadow_radius = light_radius + constants.SHADOW_RADIUS
 
     visible = {
         cell for cell, distance in distances.items()
@@ -204,20 +202,26 @@ def lose(game: GameState) -> None:
 
 
 def player_score(game: GameState) -> None:
-    """Начисляет игроку очки за прохождение игры.
+    """Начисляет очки выжившим и обновляет общий счёт команды.
 
-    Добавляет каждому игроку очки из общего счёта.
+    При победе учитывает очки за уровень, скорость и личные бонусы.
+    При поражении новые очки не начисляются.
+    Сбрасывает бонусные очки текущего уровня у всех игроков.
 
     Args:
         game: Текущее состояние игры.
     """
     if game.state == "Win":
-        game.score = (game.score
-                      + constants.SCORE_PER_LEVEL
-                      + max(0, constants.SCORE_SPEED_BASE - game.turn))
+        for player in game.level.players.values():
+            if player.is_alive:
+                player.score += (
+                        constants.SCORE_PER_LEVEL
+                        + max(0, constants.SCORE_SPEED_BASE - game.turn)
+                        + player.score_from_bonuses
+                )
     for player in game.level.players.values():
-        player.score += game.score
-    game.score = 0
+        player.score_from_bonuses = 0
+    game.score = sum(player.score for player in game.level.players.values())
 
 
 def win(game: GameState) -> None:
@@ -265,8 +269,10 @@ def step(game: GameState, player_id: str, action: str,
     if game.state != "Round":
         return
     curr_level = game.level
-    for monster_num, monster in enumerate(monsters_in_level):
-        curr_level.monsters[monster_num] = (monster.symbol, monster.position)
+    curr_level.monsters = [
+        (monster.symbol, monster.position)
+        for monster in monsters_in_level
+    ]
     if not curr_level.players[player_id].is_alive:
         return
     other_players = {
@@ -320,7 +326,8 @@ def step(game: GameState, player_id: str, action: str,
                     curr_level.players[player_id].pos
                 )
                 apply_bonus(bonus, player_id, curr_level)
-                game.score += constants.SCORE_PER_BONUS
+                curr_level.players[player_id].score_from_bonuses \
+                    += constants.SCORE_PER_BONUS
             if (game.players_old_pos[player_id]
                     != curr_level.players[player_id].pos):
                 game.explored.add(game.players_old_pos[player_id])
@@ -341,7 +348,7 @@ def step(game: GameState, player_id: str, action: str,
             }
             if not alive_ids <= game.players_old_pos.keys():
                 return
-            for monster_num, monster in enumerate(monsters_in_level):
+            for monster in monsters_in_level:
                 monster_old_pos = monster.position
                 monster.tick(
                     curr_level.maze,
@@ -362,10 +369,10 @@ def step(game: GameState, player_id: str, action: str,
                     ):
                         player.is_alive = False
 
-                curr_level.monsters[monster_num] = (
-                    monster.symbol,
-                    monster.position
-                )
+            curr_level.monsters = [
+                (monster.symbol, monster.position)
+                for monster in monsters_in_level
+            ]
             if is_freeze_active:
                 curr_level.freeze_turns -= 1
             if all(not player.is_alive
