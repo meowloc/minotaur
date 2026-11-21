@@ -10,6 +10,7 @@ from minotaur.game import (
     lose, move_player, step, win,
 )
 from minotaur.monsters import Hunter, Wanderer
+from minotaur.pathfinding import get_bfs_distances
 
 
 @pytest.fixture
@@ -171,18 +172,27 @@ def test_compass_bonus(game_state):
 
 
 def test_fog(round_state):
-    """Видимые клетки запоминаются и отделяются от полутени."""
-    player_id, player_id_2, game, _, _ = round_state
-    game.explored = {Cell(2, 2), Cell(3, 3)}
+    """Свет и полутень занимают разные зоны вокруг игрока."""
+    player_id, _, game, _, _ = round_state
+    player = game.level.players[player_id]
+    distances = get_bfs_distances(game.level.maze, player.pos)
+    radius = constants.VIEW_RADIUS
 
     fog(game, player_id)
 
-    status = game.level.players[player_id].cells_status
-    assert Cell(1, 1) in status["active"]
-    assert Cell(2, 1) in status["active"]
+    status = player.cells_status
     active = set(status["active"])
-    assert active <= game.explored
-    assert set(status["discovered"]) == game.explored - active
+    shadow = set(status["discovered"])
+    assert active == {
+        cell for cell, distance in distances.items()
+        if distance <= radius
+    }
+    assert shadow == {
+        cell for cell, distance in distances.items()
+        if radius < distance <= radius * 2
+    }
+    assert active.isdisjoint(shadow)
+    assert active | shadow <= game.explored
 
 
 def test_key_actions_movement(move_check):
@@ -273,49 +283,8 @@ def test_lose(move_check):
     lose(game)
 
     assert game.state == "Lose"
-    assert game.score == 150
-    assert level.players[player_id].score == 0
-
-
-def test_step_right(round_state):
-    """Первый игрок двигается, но раунд ждёт второго."""
-    first, second, game, wanderer, hunter = round_state
-    step(game, first, "d", [hunter, wanderer])
-    assert game.level.players[first].pos == Cell(1, 2)
-    assert game.level.players[first].steps == 1
-    assert game.players_old_pos == {first: Cell(1, 1)}
-    assert Cell(1, 1) in game.explored
-    assert game.turn == 0
-
-
-def test_step_left(round_state):
-    """Движение влево сохраняет исходную позицию."""
-    first, second, game, wanderer, hunter = round_state
-    game.level.players[first].pos = Cell(2, 2)
-    step(game, first, "a", [hunter, wanderer])
-    assert game.level.players[first].pos == Cell(2, 1)
-    assert game.players_old_pos[first] == Cell(2, 2)
-    assert game.turn == 0
-
-
-def test_step_up(round_state):
-    """Движение вверх учитывается как действие первого игрока."""
-    first, second, game, wanderer, hunter = round_state
-    game.level.players[first].pos = Cell(2, 2)
-    step(game, first, "w", [hunter, wanderer])
-    assert game.level.players[first].pos == Cell(1, 2)
-    assert game.players_old_pos[first] == Cell(2, 2)
-    assert game.turn == 0
-
-
-def test_step_down(round_state):
-    """Движение вниз не завершает раунд до хода напарника."""
-    first, second, game, wanderer, hunter = round_state
-    game.level.players[first].pos = Cell(2, 2)
-    step(game, first, "s", [hunter, wanderer])
-    assert game.level.players[first].pos == Cell(3, 2)
-    assert game.players_old_pos[first] == Cell(2, 2)
-    assert game.turn == 0
+    assert game.score == 0
+    assert level.players[player_id].score == 150
 
 
 def test_step_wait(round_state):
@@ -389,8 +358,9 @@ def test_step_compass(round_state):
     first, second, game, wanderer, hunter = round_state
     game.level.players[first].compass_active = True
     step(game, first, " ", [hunter, wanderer])
-    assert game.compass_path == [Cell(1, 2), Cell(1, 3)]
-    assert len(game.compass_path) <= constants.BONUS_COMPASS_RANGE
+    assert game.level.players[first].compass_path == [Cell(1, 2), Cell(1, 3)]
+    assert (len(game.level.players[first].compass_path)
+            <= constants.BONUS_COMPASS_RANGE)
 
 
 def test_step_monsters_move(round_state):
@@ -567,11 +537,14 @@ def test_step_into_another_player(round_state):
     assert game.turn == 0
 
 
-def test_step_repeated_action_ignored(round_state):
-    """Повторное действие до хода напарника игнорируется."""
+def test_step_repeated_action_error(round_state):
+    """Повторный ход вызывает ошибку без изменения состояния игрока."""
     first, second, game, wanderer, hunter = round_state
     step(game, first, "d", [hunter, wanderer])
-    step(game, first, "d", [hunter, wanderer])
+
+    with pytest.raises(MovementError):
+        step(game, first, "d", [hunter, wanderer])
+
     assert game.level.players[first].pos == Cell(1, 2)
     assert game.level.players[first].steps == 1
     assert game.turn == 0

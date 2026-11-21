@@ -17,7 +17,6 @@ class GameState:
         level_num: Номер текущего уровня.
         state: Состояние игры: Round/Win/Lose.
         explored: Множество исследованных клеток лабиринта.
-        compass_path: Маршрут компаса до ключа или выхода.
         players_old_pos: Исходные позиции игроков текущего раунда.
         turn: Количество выполненных игровых ходов.
         score: Количество набранных очков.
@@ -29,50 +28,54 @@ class GameState:
     level_num: int
     state: str = "Round"
     explored: set[Cell] = field(default_factory=set)
-    compass_path: list[Cell] = field(default_factory=list)
     players_old_pos: dict[str, Cell] = field(default_factory=dict)
     turn: int = 0
     score: int = 0
     message: str = ""
     rng: random.Random = field(
-        default_factory=lambda: random.Random(0)
+        default_factory=random.Random
     )
 
 
 def fog(game: GameState, player_id: str):
-    """Обновляет видимость клеток лабиринта.
+    """Обновляет освещённые клетки и полутень.
 
-        Вычисляет расстояния от игрока до доступных клеток.
-        Факел увеличивает радиус обзора только для его владельца.
-        Видимые клетки добавляются к ранее исследованным.
-        Клетки вне текущего обзора сохраняются в полутени.
+    Вычисляет расстояния от игрока до доступных клеток.
+    Факел увеличивает радиус света только для владельца.
+    В освещённой области видны карта и монстры.
+    В кольце полутени видна карта, но не монстры.
+    Открытые клетки сохраняются в истории исследования.
 
-        Args:
-            game: Текущее состояние игры.
-            player_id: ID игрока, для которого обновляется видимость.
-        """
-    distances = get_bfs_distances(game.level.maze,
-                                  game.level.players[player_id].pos)
+    Args:
+        game: Текущее состояние игры.
+        player_id: ID игрока, для которого обновляется видимость.
+    """
     player = game.level.players[player_id]
+    distances = get_bfs_distances(game.level.maze, player.pos)
 
-    radius = constants.VIEW_RADIUS
+    light_radius = constants.VIEW_RADIUS
     if player.torch_active:
-        radius += constants.BONUS_TORCH_RADIUS
+        light_radius += constants.BONUS_TORCH_RADIUS
+
+    shadow_radius = light_radius + constants.VIEW_RADIUS
 
     visible = {
         cell for cell, distance in distances.items()
-        if distance <= radius
+        if distance <= light_radius
     }
 
-    game.explored.update(visible)
+    shadow = {
+        cell for cell, distance in distances.items()
+        if light_radius < distance <= shadow_radius
+    }
+
+    game.explored.update(visible | shadow)
 
     player.cells_status["active"] = list(visible)
-    player.cells_status["discovered"] = list(
-        game.explored - visible
-    )
+    player.cells_status["discovered"] = list(shadow)
 
 
-def move_player(direction: tuple, player_id: str, level: Level):
+def move_player(direction: tuple, player_id: str, level: Level) -> None:
     """Перемещает игрока на одну клетку лабиринта.
 
     Проверяет стены, монстров и других игроков.
@@ -113,7 +116,7 @@ def move_player(direction: tuple, player_id: str, level: Level):
     curr_player.steps += 1
 
 
-def apply_bonus(bonus: str, player_id: str, level: Level):
+def apply_bonus(bonus: str, player_id: str, level: Level) -> None:
     """Применяет эффект бонуса к игроку.
 
     Заморозка останавливает монстров на заданное
@@ -139,7 +142,7 @@ def apply_bonus(bonus: str, player_id: str, level: Level):
         raise LevelError(f"Бонус {bonus} не находится в константах!")
 
 
-def key_actions(key: str, level: Level, player_id: str):
+def key_actions(key: str, level: Level, player_id: str) -> None:
     """Обрабатывает нажатие клавиши игроком.
 
     Выполняет перемещение, ожидание, паузу или вызов помощи.
@@ -168,7 +171,7 @@ def key_actions(key: str, level: Level, player_id: str):
 
 
 def check_collision(player_old_pos: Cell, monster_old_pos: Cell,
-                    player_new_pos: Cell, monster_new_pos: Cell):
+                    player_new_pos: Cell, monster_new_pos: Cell) -> bool:
     """Проверяет столкновение игрока с монстром.
 
     Учитывает совпадение конечных позиций и ситуацию,
@@ -188,7 +191,7 @@ def check_collision(player_old_pos: Cell, monster_old_pos: Cell,
              (player_old_pos == monster_new_pos)))
 
 
-def lose(game: GameState):
+def lose(game: GameState) -> None:
     """Обрабатывает поражение игроков.
 
     Устанавливает состояние поражения, когда все игроки погибли.
@@ -197,9 +200,10 @@ def lose(game: GameState):
         game: Текущее состояние игры.
     """
     game.state = "Lose"
+    player_score(game)
 
 
-def player_score(game: GameState):
+def player_score(game: GameState) -> None:
     """Начисляет игроку очки за прохождение игры.
 
     Добавляет каждому игроку очки из общего счёта.
@@ -216,7 +220,7 @@ def player_score(game: GameState):
     game.score = 0
 
 
-def win(game: GameState):
+def win(game: GameState) -> None:
     """Обрабатывает успешное прохождение уровня.
 
     Начисляет базовые очки за уровень и бонус за скорость,
@@ -254,10 +258,10 @@ def step(game: GameState, player_id: str, action: str,
     Raises:
         MovementError: Если клавиша неизвестна или ход невозможен.
     """
+
     if game.turn == 0:
         fog(game, player_id)
-    if player_id in game.players_old_pos:
-        return
+
     if game.state != "Round":
         return
     curr_level = game.level
@@ -273,6 +277,9 @@ def step(game: GameState, player_id: str, action: str,
     if action not in constants.KEY_BINDINGS:
         raise MovementError(f"Клавиша {action} не находится в константах!")
     else:
+        if (player_id in game.players_old_pos
+                and constants.KEY_BINDINGS[action] not in ("pause", "help")):
+            raise MovementError("Ваша очередь еще не настала")
         key_actions(action, curr_level, player_id)
     if curr_level.is_pause_on:
         return
@@ -283,14 +290,16 @@ def step(game: GameState, player_id: str, action: str,
             return
         else:
             game.players_old_pos[player_id] = player_old_pos
-            if (game.players_old_pos[player_id]
-                    != curr_level.players[player_id].pos):
-                game.explored.add(game.players_old_pos[player_id])
-                fog(game, player_id)
-            if curr_level.key == curr_level.players[player_id].pos:
+            if all(not player.is_alive
+                   for player in curr_level.players.values()):
+                lose(game)
+                return
+            if (curr_level.key == curr_level.players[player_id].pos
+                    and curr_level.players[player_id].is_alive):
                 curr_level.key = None
             if (curr_level.players[player_id].pos == curr_level.exit
-                    and curr_level.is_key_taken):
+                    and curr_level.is_key_taken
+                    and curr_level.players[player_id].is_alive):
                 if all(
                         player.pos == curr_level.exit
                         or not player.is_alive
@@ -300,16 +309,22 @@ def step(game: GameState, player_id: str, action: str,
                     win(game)
                     return
             if (curr_level.players[player_id].pos == curr_level.exit
-                    and not curr_level.is_key_taken):
+                    and not curr_level.is_key_taken
+                    and curr_level.players[player_id].is_alive):
                 game.message = "Нельзя открыть дверь без ключа"
-            if curr_level.players[player_id].pos in curr_level.bonuses:
+            if (curr_level.players[player_id].pos in curr_level.bonuses
+                    and curr_level.players[player_id].is_alive):
                 bonus = curr_level.bonuses.pop(
                     curr_level.players[player_id].pos
                 )
                 apply_bonus(bonus, player_id, curr_level)
                 game.score += constants.SCORE_PER_BONUS
+            if (game.players_old_pos[player_id]
+                    != curr_level.players[player_id].pos):
+                game.explored.add(game.players_old_pos[player_id])
+                fog(game, player_id)
             if curr_level.players[player_id].compass_active:
-                game.compass_path = get_shortest_path(
+                curr_level.players[player_id].compass_path = get_shortest_path(
                     curr_level.maze,
                     curr_level.players[player_id].pos,
                     curr_level.exit

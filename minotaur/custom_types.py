@@ -39,6 +39,7 @@ class Player:
         is_ready: Готов ли игрок к началу раунда.
         help_used: Вызов памятки по игре.
         cells_status: статус клеток, который видны или были посещены игроком
+        compass_path: Маршрут компаса до ключа или выхода.
         torch_active: Действует ли факел у конкретного игрока
             до конца уровня.
         compass_active: Действует ли компас у конкретного игрока
@@ -62,6 +63,7 @@ class Player:
             "discovered": []
         }
     )
+    compass_path: list[Cell] = field(default_factory=list)
     torch_active: bool = False
     compass_active: bool = False
 
