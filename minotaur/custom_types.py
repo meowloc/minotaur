@@ -37,6 +37,8 @@ class Player:
         is_connected: Подключён ли игрок к серверу.
         is_alive: Жив ли игрок.
         is_ready: Готов ли игрок к началу раунда.
+        help_used: Вызов памятки по игре.
+        cells_status: статус клеток, который видны или были посещены игроком
         torch_active: Действует ли факел у конкретного игрока
             до конца уровня.
         compass_active: Действует ли компас у конкретного игрока
@@ -52,7 +54,14 @@ class Player:
     is_connected: bool = False
     is_alive: bool = True
     is_ready: bool = False
+    help_used: bool = False
 
+    cells_status: dict[str, list[Cell]] = field(
+        default_factory=lambda: {
+            "active": [],
+            "discovered": []
+        }
+    )
     torch_active: bool = False
     compass_active: bool = False
 
@@ -73,6 +82,7 @@ class Level:
         monsters: Монстры в виде пар из символа монстра и его позиции.
         bonuses: Бонусы: позиция бонуса и его символ.
         freeze_turns: Сколько ходов ещё действует заморозка, 0 — не действует.
+        is_pause_on: Проверка на наличие паузы
     """
 
     maze: Maze
@@ -83,6 +93,7 @@ class Level:
     monsters: list[tuple[str, Cell]] = field(default_factory=list)
     bonuses: dict[Cell, str] = field(default_factory=dict)
     freeze_turns: int = 0
+    is_pause_on: bool = False
 
     @property
     def is_key_taken(self) -> bool:
