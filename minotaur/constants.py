@@ -32,6 +32,7 @@ Attributes:
     BONUS_COMPASS_RANGE: Сколько клеток пути показывает компас.
     BONUS_TORCH_RADIUS: На сколько клеток факел увеличивает обзор.
     VIEW_RADIUS: Радиус обзора игрока в тумане войны.
+    SHADOW_RADIUS: Ширина зоны полутени вокруг освещённой области.
     SCORE_PER_LEVEL: Очки за прохождение уровня.
     SCORE_SPEED_BASE: Базовое число очков за скорость прохождения.
     SCORE_PER_BONUS: Очки за подобранный бонус.
@@ -85,6 +86,7 @@ BONUS_COMPASS_RANGE = 8
 BONUS_TORCH_RADIUS = 2
 
 VIEW_RADIUS = 5
+SHADOW_RADIUS = 3
 
 SCORE_PER_LEVEL = 100
 SCORE_SPEED_BASE = 300
