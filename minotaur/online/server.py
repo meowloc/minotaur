@@ -49,25 +49,31 @@ class Session:
         if packet["topic"] == "system" and cmd == "hello":
             nick = packet["data"].get("nick")
             if type(nick) is not str or not nick:
-                return cmd, {"ok": False, "error": "Нужен ник игрока."}
+                return cmd, {"ok": False, "error": "Нужен ник игрока.",
+                             "error_code": "InvalidNick"}
             digest = hashlib.md5(nick.encode("utf-8")).hexdigest()
             if digest[:PLAYER_ID_LENGTH] != player_id:
-                return cmd, {"ok": False, "error": "ID не соответствует нику."}
+                return cmd, {"ok": False, "error": "ID не соответствует нику.",
+                             "error_code": "InvalidPlayerId"}
             if not self.server.register(self, player_id, nick):
-                return cmd, {"ok": False, "error": "Игрок уже подключён."}
+                return cmd, {"ok": False, "error": "Игрок уже подключён.",
+                             "error_code": "PlayerAlreadyConnected"}
             return cmd, {"ok": True}
 
         if self.player_id is None:
-            return cmd, {"ok": False, "error": "Сначала отправьте hello."}
+            return cmd, {"ok": False, "error": "Сначала отправьте hello.",
+                         "error_code": "HelloRequired"}
         if player_id != self.player_id:
-            return cmd, {"ok": False, "error": "ID принадлежит не вам."}
+            return cmd, {"ok": False, "error": "ID принадлежит не вам.",
+                         "error_code": "WrongPlayerId"}
         if packet["topic"] == "lobby":
             return cmd, self.server.lobby_command(self, cmd, packet["data"])
         if packet["topic"] == "system" and cmd == "disconnect":
             self.unregister()
             self.finished = True
             return cmd, {"ok": True}
-        return cmd, {"ok": False, "error": "Неизвестная команда."}
+        return cmd, {"ok": False, "error": "Неизвестная команда.",
+                     "error_code": "UnknownCommand"}
 
 
 class GameServer:
@@ -171,7 +177,8 @@ class GameServer:
                 ]}
             if cmd == "update":
                 if session.lobby_id is None:
-                    return {"ok": False, "error": "Вы не в лобби."}
+                    return {"ok": False, "error": "Вы не в лобби.",
+                            "error_code": "NotInLobby"}
                 lobby = self.lobbies[session.lobby_id]
                 for member_id in lobby["players"]:
                     recipient = self.sessions[member_id]
@@ -179,13 +186,16 @@ class GameServer:
                 return {"ok": True}
             if cmd == "leave":
                 if session.lobby_id is None:
-                    return {"ok": False, "error": "Вы не в лобби."}
+                    return {"ok": False, "error": "Вы не в лобби.",
+                            "error_code": "NotInLobby"}
                 self._leave_lobby(session)
                 return {"ok": True}
             if cmd not in ("create", "join"):
-                return {"ok": False, "error": "Неизвестная команда."}
+                return {"ok": False, "error": "Неизвестная команда.",
+                        "error_code": "UnknownCommand"}
             if session.lobby_id is not None:
-                return {"ok": False, "error": "Вы уже в лобби."}
+                return {"ok": False, "error": "Вы уже в лобби.",
+                        "error_code": "AlreadyInLobby"}
             player_id = session.player_id
             nick = self.players[player_id]
             if cmd == "create":
@@ -197,10 +207,12 @@ class GameServer:
             else:
                 lobby_id = data.get("lobby_id")
                 if type(lobby_id) is not int or lobby_id not in self.lobbies:
-                    return {"ok": False, "error": "Лобби не найдено."}
+                    return {"ok": False, "error": "Лобби не найдено.",
+                            "error_code": "LobbyNotFound"}
                 lobby = self.lobbies[lobby_id]
                 if len(lobby["players"]) >= 2:
-                    return {"ok": False, "error": "Лобби заполнено."}
+                    return {"ok": False, "error": "Лобби заполнено.",
+                            "error_code": "LobbyFull"}
                 lobby["players"][player_id] = nick
                 for member_id in lobby["players"]:
                     if member_id != session.player_id:
@@ -225,9 +237,12 @@ class GameServer:
                 for lobby in updates:
                     protocol.request("lobby", "update", session.player_id,
                                      {"lobby": lobby})
-                protocol.receive(session.handle_request)
-        except (EOFError, OSError, ValueError):
+                protocol.receive(session.handle_request,
+                                 session.player_id or "unknown")
+        except (EOFError, OSError):
             pass
+        except Exception as error:
+            print(error, flush=True)
         finally:
             session.unregister()
             tube.close()

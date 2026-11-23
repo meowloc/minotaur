@@ -37,7 +37,7 @@ def test_read_packet():
             client.sendline(encode_packet(ping))
             assert read_packet(connection, 1) == ping
 
-            client.sendline(b"{}")
+            client.sendline(b'{"num": 1}')
             with pytest.raises(ValueError, match="Нужны поля"):
                 read_packet(connection, 1)
 
@@ -69,6 +69,20 @@ def test_receive():
 
             request["data"]["message"] = "Пока"
             client.sendline(encode_packet(request))
-            with pytest.raises(ValueError, match="номер уже занят"):
-                protocol.receive(save_message)
+            protocol.receive(save_message)
+            error = read_packet(client, 1)
+            assert error["data"]["error_code"] == "NumAlreadyUsed"
+            assert error["data"]["next_num"] == 2
             assert messages == ["Привет"]
+
+            request["data"]["message"] = "Привет"
+            client.sendline(encode_packet(request))
+            protocol.receive(save_message)
+            assert read_packet(client, 1) == first_ack
+
+            request["num"] = error["data"]["next_num"]
+            request["data"]["message"] = "Пока"
+            client.sendline(encode_packet(request))
+            protocol.receive(save_message)
+            assert read_packet(client, 1)["data"] == {"ok": True}
+            assert messages == ["Привет", "Пока"]

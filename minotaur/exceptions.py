@@ -17,3 +17,21 @@ class GenerationError(MinotaurError, ValueError):
 
 class PlaceError(MinotaurError, ValueError):
     """Ошибка при размещении объектов на карте."""
+
+
+class PacketError(MinotaurError, ValueError):
+    """Ошибка входящего пакета.
+
+    Attributes:
+        error_code: Короткое имя ошибки для обработки клиентом.
+    """
+
+    def __init__(self, message, error_code):
+        """Сохранить описание и код ошибки.
+
+        Args:
+            message: Понятное описание проблемы.
+            error_code: Имя ошибки, например InvalidJson.
+        """
+        super().__init__(message)
+        self.error_code = error_code

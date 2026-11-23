@@ -9,6 +9,9 @@ import json
 from time import monotonic
 
 
+from minotaur.exceptions import PacketError
+
+
 def encode_packet(packet):
     """Закодировать пакет для отправки через sendline.
 
@@ -38,28 +41,38 @@ def read_packet(tube, timeout):
         и data (словарь). Если строка не получена вовремя, возвращает None.
 
     Raises:
-        ValueError: Ошибка декодирования UTF-8, синтаксиса JSON или полей
+        PacketError: Ошибка декодирования UTF-8, синтаксиса JSON или полей
             пакета. Поля cmdid и id должны быть непустыми строками.
         EOFError: Соединение закрылось до получения полной строки.
     """
     line = tube.recvuntil(b"\n", timeout=timeout)
     if not line:
         return None
-    packet = json.loads(line.decode("utf-8"))
+    try:
+        packet = json.loads(line.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise PacketError("Пакет должен быть в UTF-8.", "InvalidEncoding")
+    except json.JSONDecodeError:
+        raise PacketError("Не удалось прочитать JSON.", "InvalidJson")
+    if type(packet) is dict and (
+            type(packet.get("num")) is not int or packet["num"] < 1):
+        raise PacketError("Нужен положительный целый num.", "InvalidNum")
     if type(packet) is not dict or set(packet) != {
             "num", "type", "topic", "cmdid", "id", "data"}:
-        raise ValueError("Нужны поля num, type, topic, cmdid, id и data.")
-    if type(packet["num"]) is not int or packet["num"] < 1:
-        raise ValueError("Номер пакета должен быть положительным целым.")
+        raise PacketError("Нужны поля num, type, topic, cmdid, id и data.",
+                          "InvalidFields")
     if packet["type"] not in ("req", "resp"):
-        raise ValueError("Тип пакета должен быть req или resp.")
+        raise PacketError("Тип пакета должен быть req или resp.",
+                          "InvalidType")
     if packet["topic"] not in ("system", "lobby", "game", "chat"):
-        raise ValueError("Неизвестный топик.")
+        raise PacketError("Неизвестный топик.", "UnknownTopic")
     for field in ("cmdid", "id"):
         if type(packet[field]) is not str or not packet[field]:
-            raise ValueError(f"Поле {field} должно быть непустой строкой.")
+            raise PacketError(f"Поле {field} должно быть непустой строкой.",
+                              "InvalidFields")
     if type(packet["data"]) is not dict:
-        raise ValueError("Поле data должно содержать объект JSON.")
+        raise PacketError("Поле data должно содержать объект JSON.",
+                          "InvalidData")
     return packet
 
 
@@ -125,16 +138,21 @@ class Protocol:
                                  sent=1, deadline=monotonic() + self.timeout)
         return num
 
-    def receive(self, handle_request):
+    def receive(self, handle_request, player_id="unknown"):
         """Принять один пакет и повторить запросы, срок ожидания которых истёк.
 
         Вызывается в цикле соединения. На повтор входящего запроса
         отправляет сохранённый ответ без повторного вызова обработчика.
+        На повреждённый пакет отправляет запрос system.error. При конфликте
+        номеров возвращает отказ на запрос. next_num добавляется в данные
+        только при ошибке нумерации и учитывает принятые входящие запросы.
 
         Args:
             handle_request: Функция для обработки нового входящего req.
                 Принимает словарь пакета и возвращает пару (cmdid, data)
                 с названием команды ответа и словарём данных.
+            player_id: ID получателя system.error. До регистрации используется
+                строка unknown, поскольку ID игрока ещё неизвестен.
 
         Returns:
             Словарь resp, если num, id и topic совпали с ожидаемым ответом.
@@ -142,14 +160,21 @@ class Protocol:
             подходящего запроса возвращает None.
 
         Raises:
-            ValueError: Пакет некорректен, номер входящего запроса повторно
-                занят другим запросом или ответ нельзя закодировать в JSON.
+            ValueError: Ответ обработчика нельзя закодировать в JSON.
             TypeError: Ответ обработчика содержит неподдерживаемый тип.
             EOFError: Соединение закрылось при чтении или отправке.
             TimeoutError: Истёк срок ожидания ответа после последней
                 отправки запроса. Метод закрывает соединение.
         """
-        packet = read_packet(self.tube, self.timeout)
+        try:
+            packet = read_packet(self.tube, self.timeout)
+        except PacketError as error:
+            data = dict(ok=False, error=str(error),
+                        error_code=error.error_code)
+            if error.error_code == "InvalidNum":
+                data["next_num"] = max(self.answers, default=0) + 1
+            self.request("system", "error", player_id, data)
+            packet = None
         response = None
         if packet is not None:
             num = packet["num"]
@@ -163,8 +188,14 @@ class Protocol:
                 else:
                     original, answer = self.answers[num]
                     if original != packet:
-                        raise ValueError(
-                            "Этот номер уже занят другим запросом.")
+                        data = dict(
+                            ok=False,
+                            error="Номер уже использован другим запросом.",
+                            error_code="NumAlreadyUsed",
+                            next_num=max(self.answers) + 1,
+                        )
+                        answer = encode_packet(dict(packet, type="resp",
+                                                    data=data))
                 self.tube.sendline(answer)
             elif num in self.pending:
                 item = self.pending[num]
