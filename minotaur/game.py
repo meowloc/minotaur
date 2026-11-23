@@ -4,7 +4,7 @@ import random
 from minotaur import constants
 from minotaur.custom_types import Level, Cell
 from minotaur.exceptions import MovementError, LevelError
-from minotaur.monsters import Monster
+from minotaur.monsters import Monster, Minotaur
 from minotaur.pathfinding import get_shortest_path, get_bfs_distances
 
 
@@ -368,7 +368,9 @@ def step(game: GameState, player_id: str, action: str,
                         monster.position
                     ):
                         player.is_alive = False
-
+                    elif isinstance(monster, Minotaur):
+                        if player.pos in monster.jump_area:
+                            player.is_alive = False
             curr_level.monsters = [
                 (monster.symbol, monster.position)
                 for monster in monsters_in_level

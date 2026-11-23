@@ -11,7 +11,7 @@ from minotaur.game import (
     GameState, apply_bonus, check_collision, fog, key_actions,
     lose, move_player, step, win,
 )
-from minotaur.monsters import Hunter, Wanderer
+from minotaur.monsters import Hunter, Wanderer, Minotaur, Phase
 from minotaur.pathfinding import get_bfs_distances
 
 
@@ -586,3 +586,21 @@ def test_step_into_monster_is_fatal(round_state):
 
     assert game.level.players[first].is_alive is False
     assert game.state == "Lose"
+
+
+def test_step_minotaur_jump_on_player(round_state):
+    """Игрок погибает в зоне прыжка Минотавра."""
+    first, second, game, _, _ = round_state
+    player = game.level.players[first]
+
+    minotaur = Minotaur(Cell(1, 2))
+    minotaur.phase = Phase.AIM
+    minotaur.turns_left = 1
+    minotaur.landing = Cell(1, 3)
+    minotaur.mark = {player.pos}
+
+    step(game, first, " ", [minotaur])
+    step(game, second, " ", [minotaur])
+
+    assert player.is_alive is False
+    assert player.pos in minotaur.jump_area
