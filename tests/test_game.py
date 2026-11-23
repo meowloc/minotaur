@@ -11,7 +11,7 @@ from minotaur.game import (
     GameState, apply_bonus, check_collision, fog, key_actions,
     lose, move_player, step, win,
 )
-from minotaur.monsters import Hunter, Wanderer, Minotaur, Phase
+from minotaur.monsters import Hunter, Wanderer, Minotaur, Phase, _get_area
 from minotaur.pathfinding import get_bfs_distances
 
 
@@ -588,19 +588,65 @@ def test_step_into_monster_is_fatal(round_state):
     assert game.state == "Lose"
 
 
-def test_step_minotaur_jump_on_player(round_state):
+def test_step_minotaur_jump_kills_player(round_state):
     """Игрок погибает в зоне прыжка Минотавра."""
     first, second, game, _, _ = round_state
     player = game.level.players[first]
 
-    minotaur = Minotaur(Cell(1, 2))
+    minotaur = Minotaur(Cell(1, 3))
     minotaur.phase = Phase.AIM
     minotaur.turns_left = 1
-    minotaur.landing = Cell(1, 3)
-    minotaur.mark = {player.pos}
+    landing = Cell(1, 2)
+    minotaur.landing = landing
+    minotaur.mark = _get_area(game.level.maze, landing)
 
     step(game, first, " ", [minotaur])
     step(game, second, " ", [minotaur])
 
     assert player.is_alive is False
     assert player.pos in minotaur.jump_area
+
+
+def test_step_minotaur_jump_not_on_player(round_state):
+    """Игрок вне зоны прыжка Минотавра остаётся жив."""
+    first, second, game, _, _ = round_state
+    player = game.level.players[first]
+
+    minotaur = Minotaur(Cell(1, 3))
+    minotaur.phase = Phase.AIM
+    minotaur.turns_left = 1
+
+    landing = Cell(1, 3)
+    minotaur.landing = landing
+    minotaur.mark = _get_area(game.level.maze, landing)
+
+    assert player.pos not in minotaur.mark
+
+    step(game, first, " ", [minotaur])
+    step(game, second, " ", [minotaur])
+
+    assert player.is_alive
+    assert player.pos not in minotaur.jump_area
+
+
+def test_step_minotaur_mark_does_not_kill(round_state):
+    """Метка прицеливания не убивает игрока до прыжка."""
+    first, second, game, _, _ = round_state
+    player = game.level.players[first]
+
+    minotaur = Minotaur(Cell(1, 3))
+    minotaur.phase = Phase.AIM
+    minotaur.turns_left = 2
+
+    landing = Cell(1, 2)
+    minotaur.landing = landing
+    minotaur.mark = _get_area(game.level.maze, landing)
+
+    assert player.pos in minotaur.mark
+
+    step(game, first, " ", [minotaur])
+    step(game, second, " ", [minotaur])
+
+    assert player.is_alive
+    assert minotaur.phase is Phase.AIM
+    assert minotaur.turns_left == 1

@@ -361,16 +361,15 @@ def step(game: GameState, player_id: str, action: str,
                 for curr_id, player in curr_level.players.items():
                     if not player.is_alive:
                         continue
-                    if check_collision(
+                    if ((check_collision(
                         game.players_old_pos[curr_id],
                         monster_old_pos,
                         player.pos,
                         monster.position
-                    ):
+                    ))
+                        or (isinstance(monster, Minotaur) and
+                            player.pos in monster.jump_area)):
                         player.is_alive = False
-                    elif isinstance(monster, Minotaur):
-                        if player.pos in monster.jump_area:
-                            player.is_alive = False
             curr_level.monsters = [
                 (monster.symbol, monster.position)
                 for monster in monsters_in_level
