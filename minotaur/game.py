@@ -219,8 +219,6 @@ def player_score(game: GameState) -> None:
                         + max(0, constants.SCORE_SPEED_BASE - game.turn)
                         + player.score_from_bonuses
                 )
-    for player in game.level.players.values():
-        player.score_from_bonuses = 0
     game.score = sum(player.score for player in game.level.players.values())
 
 
@@ -382,3 +380,25 @@ def step(game: GameState, player_id: str, action: str,
                 return
             game.players_old_pos.clear()
             game.turn += 1
+
+
+def change_level(game: GameState) -> None:
+    """Подготавливает игру к следующему уровню или перезапуску текущего уровня.
+
+    Увеличивает номер уровня, сбрасывает состояние раунда
+    и восстанавливает всех игроков, сохраняя набранные очки.
+
+    Args:
+        game: Текущее состояние игры.
+    """
+    if game.state == "Win":
+        game.level_num += 1
+    game.state = "Round"
+    game.turn = 0
+    game.explored.clear()
+    game.message = ""
+    game.players_old_pos.clear()
+
+    for player in game.level.players.values():
+        player.is_alive = True
+        player.score_from_bonuses = 0
