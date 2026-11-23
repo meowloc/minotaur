@@ -1,4 +1,4 @@
-"""Регистрация игроков и управление лобби игрового сервера."""
+"""Регистрация игроков, лобби и чат игрового сервера."""
 
 import hashlib
 from threading import Lock
@@ -16,6 +16,7 @@ class Session:
         finished: Получена команда disconnect и соединение пора закрыть.
         lobby_id: Номер текущего лобби или None.
         updates: Изменения состава лобби, ожидающие отправки этому клиенту.
+        chat_updates: Команды чата и их данные, ожидающие отправки клиенту.
     """
 
     def __init__(self, server):
@@ -29,6 +30,7 @@ class Session:
         self.finished = False
         self.lobby_id = None
         self.updates = []
+        self.chat_updates = []
 
     def unregister(self):
         """Освободить ID этого соединения после выхода или обрыва связи."""
@@ -68,6 +70,8 @@ class Session:
                          "error_code": "WrongPlayerId"}
         if packet["topic"] == "lobby":
             return cmd, self.server.lobby_command(self, cmd, packet["data"])
+        if packet["topic"] == "chat":
+            return cmd, self.server.chat_command(self, cmd, packet["data"])
         if packet["topic"] == "system" and cmd == "disconnect":
             self.unregister()
             self.finished = True
@@ -83,6 +87,7 @@ class GameServer:
         players: Ники зарегистрированных игроков по ID.
         sessions: Активные сеансы по тем же ID.
         lobbies: Лобби по номерам. Игроки перечислены в порядке входа.
+        histories: Списки сообщений чата по номерам лобби.
         next_lobby_id: Номер следующего создаваемого лобби.
         lock: Блокировка общих данных игроков и лобби.
     """
@@ -92,6 +97,7 @@ class GameServer:
         self.players = {}
         self.sessions = {}
         self.lobbies = {}
+        self.histories = {}
         self.next_lobby_id = 1
         self.lock = Lock()
 
@@ -141,10 +147,72 @@ class GameServer:
             remaining = list(lobby["players"])[0]
             lobby["host_id"] = remaining
             self.sessions[remaining].updates.append(self._snapshot(lobby))
+            nick = self.players[session.player_id]
+            self._chat_message(lobby, None, f"Игрок {nick} вышел из лобби.")
         else:
             del self.lobbies[session.lobby_id]
+            del self.histories[session.lobby_id]
         session.lobby_id = None
         session.updates.clear()
+        session.chat_updates.clear()
+
+    def _chat_message(self, lobby, player_id, text):
+        """Сохранить сообщение и поставить его в очередь всем участникам.
+
+        Вызывается под блокировкой сервера.
+
+        Args:
+            lobby: Лобби получателей.
+            player_id: ID автора или None для системного сообщения.
+            text: Текст сообщения.
+
+        Returns:
+            Номер сообщения внутри истории этого лобби.
+        """
+        lobby_id = lobby["lobby_id"]
+        history = self.histories[lobby_id]
+        message = {
+            "message_id": len(history) + 1,
+            "from": player_id,
+            "message": text,
+        }
+        history.append(message)
+        data = {"lobby_id": lobby_id, "message": message}
+        for member_id in lobby["players"]:
+            self.sessions[member_id].chat_updates.append(("recv", data))
+        return message["message_id"]
+
+    def chat_command(self, session, cmd, data):
+        """Отправить сообщение или получить историю своего лобби.
+
+        Args:
+            session: Зарегистрированный сеанс отправителя.
+            cmd: send для отправки или history для чтения истории.
+            data: Для send содержит непустую строку message.
+
+        Returns:
+            Данные ответа с ok. Для send возвращается message_id,
+            для history возвращаются lobby_id и messages.
+            При отказе возвращаются error и error_code.
+        """
+        with self.lock:
+            if session.lobby_id is None:
+                return {"ok": False, "error": "Вы не в лобби.",
+                        "error_code": "NotInLobby"}
+            lobby_id = session.lobby_id
+            if cmd == "history":
+                return {"ok": True, "lobby_id": lobby_id,
+                        "messages": self.histories[lobby_id].copy()}
+            if cmd != "send":
+                return {"ok": False, "error": "Неизвестная команда.",
+                        "error_code": "UnknownCommand"}
+            message = data.get("message")
+            if type(message) is not str or not message.strip():
+                return {"ok": False, "error": "Нужен текст сообщения.",
+                        "error_code": "InvalidMessage"}
+            message_id = self._chat_message(
+                self.lobbies[lobby_id], session.player_id, message)
+            return {"ok": True, "message_id": message_id}
 
     def _snapshot(self, lobby):
         """Скопировать состояние лобби для отправки после снятия блокировки.
@@ -204,6 +272,7 @@ class GameServer:
                 lobby = dict(lobby_id=lobby_id, name=nick, host_id=player_id,
                              players={player_id: nick})
                 self.lobbies[lobby_id] = lobby
+                self.histories[lobby_id] = []
             else:
                 lobby_id = data.get("lobby_id")
                 if type(lobby_id) is not int or lobby_id not in self.lobbies:
@@ -214,6 +283,12 @@ class GameServer:
                     return {"ok": False, "error": "Лобби заполнено.",
                             "error_code": "LobbyFull"}
                 lobby["players"][player_id] = nick
+                session.chat_updates.append(("history", {
+                    "lobby_id": lobby_id,
+                    "messages": self.histories[lobby_id].copy(),
+                }))
+                self._chat_message(lobby, None,
+                                   f"Игрок {nick} вошёл в лобби.")
                 for member_id in lobby["players"]:
                     if member_id != session.player_id:
                         recipient = self.sessions[member_id]
@@ -234,9 +309,13 @@ class GameServer:
                 with self.lock:
                     updates = session.updates
                     session.updates = []
+                    chat_updates = session.chat_updates
+                    session.chat_updates = []
                 for lobby in updates:
                     protocol.request("lobby", "update", session.player_id,
                                      {"lobby": lobby})
+                for cmd, data in chat_updates:
+                    protocol.request("chat", cmd, session.player_id, data)
                 protocol.receive(session.handle_request,
                                  session.player_id or "unknown")
         except (EOFError, OSError):
