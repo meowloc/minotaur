@@ -4,6 +4,8 @@ import hashlib
 from threading import Lock
 
 from minotaur.constants import PLAYER_ID_LENGTH
+from minotaur.exceptions import LevelError
+from minotaur.levels import validate_level
 from minotaur.online.protocol import Protocol
 
 
@@ -17,6 +19,7 @@ class Session:
         lobby_id: Номер текущего лобби или None.
         updates: Изменения состава лобби, ожидающие отправки этому клиенту.
         chat_updates: Команды чата и их данные, ожидающие отправки клиенту.
+        start_updates: Команды подготовки партии для этого клиента.
     """
 
     def __init__(self, server):
@@ -31,6 +34,7 @@ class Session:
         self.lobby_id = None
         self.updates = []
         self.chat_updates = []
+        self.start_updates = []
 
     def unregister(self):
         """Освободить ID этого соединения после выхода или обрыва связи."""
@@ -87,7 +91,10 @@ class GameServer:
         players: Ники зарегистрированных игроков по ID.
         sessions: Активные сеансы по тем же ID.
         lobbies: Лобби по номерам с именем, seed, хозяином, никами участников
-            и словарём ready по ID игроков.
+            и словарём ready по ID игроков. state хранит этап запуска:
+            waiting, preparing, generating, loading, started или paused.
+            start_id — номер попытки запуска, confirmed — ID подтвердивших
+            текущий этап игроков, level — принятая карта или None.
         histories: Списки сообщений чата по номерам лобби.
         next_lobby_id: Номер следующего создаваемого лобби.
         lock: Блокировка общих данных игроков и лобби.
@@ -143,6 +150,10 @@ class GameServer:
             session: Сеанс участника лобби.
         """
         lobby = self.lobbies[session.lobby_id]
+        if lobby["state"] in ("preparing", "generating", "loading"):
+            self._cancel_start(lobby, "Игрок отключился во время подготовки.")
+        elif lobby["state"] == "started":
+            lobby["state"] = "paused"
         del lobby["players"][session.player_id]
         del lobby["ready"][session.player_id]
         if lobby["players"]:
@@ -157,6 +168,66 @@ class GameServer:
         session.lobby_id = None
         session.updates.clear()
         session.chat_updates.clear()
+        session.start_updates.clear()
+
+    def _cancel_start(self, lobby, message):
+        """Отменить подготовку под блокировкой сервера.
+
+        Args:
+            lobby: Лобби, запуск которого отменяется.
+            message: Причина отмены для чата.
+        """
+        lobby["state"] = "waiting"
+        lobby["level"] = None
+        lobby["confirmed"] = []
+        for player_id in lobby["players"]:
+            session = self.sessions[player_id]
+            session.start_updates.clear()
+            session.updates.append(self._snapshot(lobby))
+        self._chat_message(lobby, None, message)
+
+    def start_response(self, session, lobby_id, start_id, cmd, data):
+        """Учесть ответ на серверный запрос подготовки или получения карты.
+
+        Args:
+            session: Ответивший клиент.
+            lobby_id: Лобби исходного запроса.
+            start_id: Номер попытки запуска в этом лобби.
+            cmd: Команда исходного запроса prepare, generate или level.
+            data: Данные ответа с булевым ok.
+        """
+        with self.lock:
+            if session.lobby_id != lobby_id:
+                return
+            lobby = self.lobbies[lobby_id]
+            expected = {"prepare": "preparing", "generate": "generating",
+                        "level": "loading"}
+            if (lobby["start_id"] != start_id
+                    or lobby["state"] != expected[cmd]):
+                return
+            if data.get("ok") is not True:
+                self._cancel_start(lobby, "Клиент отказался от подготовки.")
+                return
+            if cmd == "generate":
+                return
+            if session.player_id not in lobby["confirmed"]:
+                lobby["confirmed"].append(session.player_id)
+            if len(lobby["confirmed"]) != 2:
+                return
+            lobby["confirmed"] = []
+            if cmd == "prepare":
+                lobby["state"] = "generating"
+                host = self.sessions[lobby["host_id"]]
+                host.start_updates.append(("generate", {
+                    "lobby_id": lobby_id, "start_id": start_id,
+                    "seed": lobby["seed"], "players": lobby["players"].copy(),
+                    "level_num": 0,
+                }))
+            else:
+                lobby["state"] = "started"
+                self._chat_message(lobby, None, "Партия началась.")
+            for player_id in lobby["players"]:
+                self.sessions[player_id].updates.append(self._snapshot(lobby))
 
     def _chat_message(self, lobby, player_id, text):
         """Сохранить сообщение и поставить его в очередь всем участникам.
@@ -223,14 +294,18 @@ class GameServer:
             lobby: Лобби под блокировкой сервера.
 
         Returns:
-            Номер, имя, seed, ID хозяина, копии словарей players и ready.
-            can_start равен True, когда в лобби двое и оба готовы.
+            Номер, имя, seed, ID хозяина, state, start_id и копии players
+            и ready. can_start равен True до запуска, если двое готовы.
+            Карта и внутренний список подтверждений в ответ не попадают.
         """
-        result = lobby.copy()
+        result = dict(lobby_id=lobby["lobby_id"], name=lobby["name"],
+                      seed=lobby["seed"], host_id=lobby["host_id"],
+                      state=lobby["state"], start_id=lobby["start_id"])
         result["players"] = lobby["players"].copy()
         result["ready"] = lobby["ready"].copy()
         result["can_start"] = (
-            len(lobby["players"]) == 2 and all(lobby["ready"].values())
+            lobby["state"] == "waiting" and len(lobby["players"]) == 2
+            and all(lobby["ready"].values())
         )
         return result
 
@@ -240,13 +315,15 @@ class GameServer:
         Args:
             session: Сеанс отправителя.
             cmd: list, create, join, leave, update, configure,
-                ready или unready.
+                ready, unready, start или level.
             data: Данные команды. Для join нужен целый lobby_id.
                 Для update достаточно пустого словаря. Команда запускает
                 отправку текущего состояния всем участникам своего лобби.
                 configure принимает name (непустая строка) и/или seed
                 (целое число либо None для случайной генерации).
-                ready и unready принимают пустой словарь.
+                ready, unready и start принимают пустой словарь.
+                level принимает start_id и словарь level от хозяина.
+                Вместо level можно передать ok=False при ошибке генерации.
 
         Returns:
             Данные ответа с полем ok и результатом или причиной отказа.
@@ -256,11 +333,69 @@ class GameServer:
                 return {"ok": True, "lobbies": [
                     self._snapshot(lobby) for lobby in self.lobbies.values()
                 ]}
+            if cmd in ("start", "level"):
+                if session.lobby_id is None:
+                    return {"ok": False, "error": "Вы не в лобби.",
+                            "error_code": "NotInLobby"}
+                lobby = self.lobbies[session.lobby_id]
+                if session.player_id != lobby["host_id"]:
+                    return {"ok": False, "error": "Нужны права хозяина.",
+                            "error_code": "HostRequired"}
+                if cmd == "start":
+                    if not self._snapshot(lobby)["can_start"]:
+                        return {"ok": False, "error": "Нужны двое готовых.",
+                                "error_code": "CannotStart"}
+                    lobby["state"] = "preparing"
+                    lobby["start_id"] += 1
+                    lobby["confirmed"] = []
+                    for player_id in lobby["players"]:
+                        member = self.sessions[player_id]
+                        member.start_updates.append(("prepare", {
+                            "lobby_id": session.lobby_id,
+                            "start_id": lobby["start_id"],
+                        }))
+                        member.updates.append(self._snapshot(lobby))
+                    return {"ok": True, "start_id": lobby["start_id"]}
+                if (lobby["state"] != "generating"
+                        or type(data.get("start_id")) is not int
+                        or data["start_id"] != lobby["start_id"]):
+                    return {"ok": False, "error": "Эта карта сейчас не нужна.",
+                            "error_code": "UnexpectedLevel"}
+                if data.get("ok") is False:
+                    self._cancel_start(lobby, "Хозяин не смог создать карту.")
+                    return {"ok": True}
+                level = data.get("level")
+                try:
+                    if type(level) is not dict:
+                        raise LevelError("Нужны данные карты.")
+                    validate_level(level)
+                    if set(level["players"]) != set(lobby["players"]):
+                        raise LevelError("Игроки карты не совпадают с лобби.")
+                    if level["key"] is None:
+                        raise LevelError("На начальной карте нужен ключ.")
+                except LevelError as error:
+                    self._cancel_start(lobby, "Получена некорректная карта.")
+                    return {"ok": False, "error": str(error),
+                            "error_code": "InvalidLevel"}
+                lobby["level"] = level
+                lobby["state"] = "loading"
+                lobby["confirmed"] = []
+                for player_id in lobby["players"]:
+                    member = self.sessions[player_id]
+                    member.start_updates.append(("level", {
+                        "lobby_id": session.lobby_id,
+                        "start_id": lobby["start_id"], "level": level,
+                    }))
+                    member.updates.append(self._snapshot(lobby))
+                return {"ok": True}
             if cmd in ("update", "configure", "ready", "unready"):
                 if session.lobby_id is None:
                     return {"ok": False, "error": "Вы не в лобби.",
                             "error_code": "NotInLobby"}
                 lobby = self.lobbies[session.lobby_id]
+                if cmd != "update" and lobby["state"] != "waiting":
+                    return {"ok": False, "error": "Подготовка уже началась.",
+                            "error_code": "LobbyLocked"}
                 message = None
                 nick = self.players[session.player_id]
                 if cmd == "configure":
@@ -315,7 +450,8 @@ class GameServer:
                 self.next_lobby_id += 1
                 lobby = dict(lobby_id=lobby_id, name=nick, host_id=player_id,
                              players={player_id: nick}, seed=None,
-                             ready={player_id: False})
+                             ready={player_id: False}, state="waiting",
+                             start_id=0, confirmed=[], level=None)
                 self.lobbies[lobby_id] = lobby
                 self.histories[lobby_id] = []
             else:
@@ -324,6 +460,9 @@ class GameServer:
                     return {"ok": False, "error": "Лобби не найдено.",
                             "error_code": "LobbyNotFound"}
                 lobby = self.lobbies[lobby_id]
+                if lobby["state"] not in ("waiting", "paused"):
+                    return {"ok": False, "error": "Лобби уже запускается.",
+                            "error_code": "LobbyLocked"}
                 if len(lobby["players"]) >= 2:
                     return {"ok": False, "error": "Лобби заполнено.",
                             "error_code": "LobbyFull"}
@@ -345,11 +484,17 @@ class GameServer:
     def serve_client(self, tube):
         """Обрабатывать запросы одного клиента до выхода или обрыва связи.
 
+        Ответы на prepare и level подтверждают этап запуска. generate
+        подтверждается сразу; готовую карту хозяин присылает отдельным
+        запросом level. start_requests связывает num с попыткой запуска;
+        запросы отменённых попыток удаляются из ожидания Protocol.
+
         Args:
             tube: Соединение, которое передаёт сервер pwntools.
         """
         session = Session(self)
         protocol = Protocol(tube)
+        start_requests = {}
         try:
             while not session.finished:
                 with self.lock:
@@ -357,13 +502,36 @@ class GameServer:
                     session.updates = []
                     chat_updates = session.chat_updates
                     session.chat_updates = []
+                    start_updates = session.start_updates
+                    session.start_updates = []
+                    for num, (lobby_id, start_id, cmd) in list(
+                            start_requests.items()):
+                        lobby = self.lobbies.get(lobby_id)
+                        if (session.lobby_id != lobby_id or lobby is None
+                                or lobby["start_id"] != start_id
+                                or lobby["state"] in
+                                ("waiting", "paused", "started")
+                                or (cmd == "generate"
+                                    and lobby["state"] == "loading")):
+                            protocol.pending.pop(num, None)
+                            del start_requests[num]
                 for lobby in updates:
                     protocol.request("lobby", "update", session.player_id,
                                      {"lobby": lobby})
                 for cmd, data in chat_updates:
                     protocol.request("chat", cmd, session.player_id, data)
-                protocol.receive(session.handle_request,
-                                 session.player_id or "unknown")
+                for cmd, data in start_updates:
+                    num = protocol.request(
+                        "lobby", cmd, session.player_id, data)
+                    start_requests[num] = (data["lobby_id"],
+                                           data["start_id"], cmd)
+                response = protocol.receive(session.handle_request,
+                                            session.player_id or "unknown")
+                if response is not None and response["num"] in start_requests:
+                    request = start_requests.pop(response["num"])
+                    lobby_id, start_id, cmd = request
+                    self.start_response(session, lobby_id, start_id, cmd,
+                                        response["data"])
         except (EOFError, OSError):
             pass
         except Exception as error:
