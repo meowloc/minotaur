@@ -86,7 +86,8 @@ class GameServer:
     Attributes:
         players: Ники зарегистрированных игроков по ID.
         sessions: Активные сеансы по тем же ID.
-        lobbies: Лобби по номерам. Игроки перечислены в порядке входа.
+        lobbies: Лобби по номерам с именем, seed, хозяином, никами участников
+            и словарём ready по ID игроков.
         histories: Списки сообщений чата по номерам лобби.
         next_lobby_id: Номер следующего создаваемого лобби.
         lock: Блокировка общих данных игроков и лобби.
@@ -143,6 +144,7 @@ class GameServer:
         """
         lobby = self.lobbies[session.lobby_id]
         del lobby["players"][session.player_id]
+        del lobby["ready"][session.player_id]
         if lobby["players"]:
             remaining = list(lobby["players"])[0]
             lobby["host_id"] = remaining
@@ -221,19 +223,30 @@ class GameServer:
             lobby: Лобби под блокировкой сервера.
 
         Returns:
-            Номер, имя, ID хозяина и копия словаря ников участников.
+            Номер, имя, seed, ID хозяина, копии словарей players и ready.
+            can_start равен True, когда в лобби двое и оба готовы.
         """
-        return dict(lobby, players=lobby["players"].copy())
+        result = lobby.copy()
+        result["players"] = lobby["players"].copy()
+        result["ready"] = lobby["ready"].copy()
+        result["can_start"] = (
+            len(lobby["players"]) == 2 and all(lobby["ready"].values())
+        )
+        return result
 
     def lobby_command(self, session, cmd, data):
         """Выполнить команду лобби зарегистрированного клиента.
 
         Args:
             session: Сеанс отправителя.
-            cmd: Команда list, create, join, leave или update.
+            cmd: list, create, join, leave, update, configure,
+                ready или unready.
             data: Данные команды. Для join нужен целый lobby_id.
                 Для update достаточно пустого словаря. Команда запускает
                 отправку текущего состояния всем участникам своего лобби.
+                configure принимает name (непустая строка) и/или seed
+                (целое число либо None для случайной генерации).
+                ready и unready принимают пустой словарь.
 
         Returns:
             Данные ответа с полем ok и результатом или причиной отказа.
@@ -243,14 +256,45 @@ class GameServer:
                 return {"ok": True, "lobbies": [
                     self._snapshot(lobby) for lobby in self.lobbies.values()
                 ]}
-            if cmd == "update":
+            if cmd in ("update", "configure", "ready", "unready"):
                 if session.lobby_id is None:
                     return {"ok": False, "error": "Вы не в лобби.",
                             "error_code": "NotInLobby"}
                 lobby = self.lobbies[session.lobby_id]
+                message = None
+                nick = self.players[session.player_id]
+                if cmd == "configure":
+                    if session.player_id != lobby["host_id"]:
+                        return {"ok": False, "error": "Нужны права хозяина.",
+                                "error_code": "HostRequired"}
+                    if not data or set(data) - {"name", "seed"}:
+                        return {"ok": False, "error": "Нужны name и/или seed.",
+                                "error_code": "InvalidSettings"}
+                    name = data.get("name", lobby["name"])
+                    seed = data.get("seed", lobby["seed"])
+                    if type(name) is not str or not name.strip():
+                        return {"ok": False, "error": "Нужно имя лобби.",
+                                "error_code": "InvalidLobbyName"}
+                    if seed is not None and type(seed) is not int:
+                        return {"ok": False, "error": "Нужен целый seed.",
+                                "error_code": "InvalidSeed"}
+                    if name != lobby["name"] or seed != lobby["seed"]:
+                        lobby["name"] = name
+                        lobby["seed"] = seed
+                        message = f"{nick} изменил настройки лобби."
+                if cmd in ("ready", "unready"):
+                    ready = cmd == "ready"
+                    if lobby["ready"][session.player_id] != ready:
+                        lobby["ready"][session.player_id] = ready
+                        if ready:
+                            message = f"Игрок {nick} готов."
+                        else:
+                            message = f"Игрок {nick} отменил готовность."
                 for member_id in lobby["players"]:
                     recipient = self.sessions[member_id]
                     recipient.updates.append(self._snapshot(lobby))
+                if message is not None:
+                    self._chat_message(lobby, None, message)
                 return {"ok": True}
             if cmd == "leave":
                 if session.lobby_id is None:
@@ -270,7 +314,8 @@ class GameServer:
                 lobby_id = self.next_lobby_id
                 self.next_lobby_id += 1
                 lobby = dict(lobby_id=lobby_id, name=nick, host_id=player_id,
-                             players={player_id: nick})
+                             players={player_id: nick}, seed=None,
+                             ready={player_id: False})
                 self.lobbies[lobby_id] = lobby
                 self.histories[lobby_id] = []
             else:
@@ -283,6 +328,7 @@ class GameServer:
                     return {"ok": False, "error": "Лобби заполнено.",
                             "error_code": "LobbyFull"}
                 lobby["players"][player_id] = nick
+                lobby["ready"][player_id] = False
                 session.chat_updates.append(("history", {
                     "lobby_id": lobby_id,
                     "messages": self.histories[lobby_id].copy(),
