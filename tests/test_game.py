@@ -255,14 +255,31 @@ def test_check_collision_no_collision():
 def test_win(move_check):
     """Победа начисляет очки игроку и обновляет счёт команды."""
     player_id, level = move_check
-    game = GameState(level=level, level_num=0, rng=random.Random(0), turn=10)
+    game = GameState(level=level, level_num=1, rng=random.Random(0), turn=10)
     level.players[player_id].score_from_bonuses = 20
 
     win(game)
 
-    expected = (20 + constants.SCORE_PER_LEVEL
-                + max(0, constants.SCORE_SPEED_BASE - 10))
+    expected = (level.players[player_id].score_from_bonuses
+                + constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
     assert game.state == "Win"
+    assert game.score == expected
+    assert level.players[player_id].score == expected
+
+
+def test_win_final_lvl(move_check):
+    """Победа на последнем уровне."""
+    player_id, level = move_check
+    game = GameState(level=level, level_num=7, rng=random.Random(0), turn=5)
+    level.players[player_id].score_from_bonuses = 20
+
+    win(game)
+
+    expected = (level.players[player_id].score_from_bonuses
+                + constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
+    assert game.state == "GameCompleted"
     assert game.score == expected
     assert level.players[player_id].score == expected
 
@@ -655,40 +672,42 @@ def test_step_minotaur_mark_does_not_kill(round_state):
 def test_next_level_changing(game_state):
     """Переход на новый уровень"""
     player_id_1, player_id_2, level = game_state
+    player_1 = level.players[player_id_1]
+    player_2 = level.players[player_id_2]
     game = GameState(level=level, level_num=1, rng=random.Random(0), turn=10)
-    level.players[player_id_1].score_from_bonuses = 20
-    level.players[player_id_2].is_alive = False
+    level.freeze_turns = 3
+    player_1.score_from_bonuses = 20
+    player_2.is_alive = False
+    player_1.compass_active = True
+    player_1.torch_active = True
+    player_1.is_connected = True
+    player_2.is_connected = True
+    player_2.nick = "Jessica"
+    player_1.nick = "Bella"
 
     win(game)
-    change_level(game)
+    player_score_1 = player_1.score
+    change_level(game, player_id_2)
 
-    assert game.level.players[player_id_2].is_alive is True
+    level = game.level
+    player_1 = next(
+        player for player in level.players.values()
+        if player.nick == "Bella"
+    )
+    player_2 = next(
+        player for player in level.players.values()
+        if player.nick == "Jessica"
+    )
+
+    assert player_2.is_alive is True
     assert game.turn == 0
     assert game.state == "Round"
     assert len(game.explored) == 0
     assert game.level_num == 2
     assert game.message == ""
     assert game.players_old_pos == {}
-    assert game.level.players[player_id_1].score_from_bonuses == 0
-
-
-def test_next_level_restarting(game_state):
-    """Перезапуск текущего уровня"""
-    player_id_1, player_id_2, level = game_state
-    game = GameState(level=level, level_num=1, rng=random.Random(0), turn=10)
-    level.players[player_id_1].score_from_bonuses = 20
-    level.players[player_id_1].is_alive = False
-    level.players[player_id_2].is_alive = False
-
-    lose(game)
-    change_level(game)
-
-    assert game.level.players[player_id_2].is_alive is True
-    assert game.level.players[player_id_1].is_alive is True
-    assert game.turn == 0
-    assert game.state == "Round"
-    assert len(game.explored) == 0
-    assert game.level_num == 1
-    assert game.message == ""
-    assert game.players_old_pos == {}
-    assert game.level.players[player_id_1].score_from_bonuses == 0
+    assert player_1.score_from_bonuses == 0
+    assert player_1.torch_active is False
+    assert player_1.compass_active is False
+    assert level.freeze_turns == 0
+    assert player_1.score == player_score_1

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import random
 
 from minotaur import constants
+from minotaur.levels import generate_level
 from minotaur.custom_types import Level, Cell
 from minotaur.exceptions import MovementError, LevelError
 from minotaur.monsters import Monster, Minotaur
@@ -16,7 +17,7 @@ class GameState:
         level: Текущий уровень с лабиринтом и игроками.
         level_num: Номер текущего уровня.
         rng: Генератор случайных чисел для поведения монстров.
-        state: Состояние игры: Round/Win/Lose.
+        state: Состояние игры: Round/Win/Lose/GameCompleted.
         explored: Множество исследованных клеток лабиринта.
         players_old_pos: Исходные позиции игроков текущего раунда.
         turn: Количество выполненных игровых ходов.
@@ -211,7 +212,7 @@ def player_score(game: GameState) -> None:
     Args:
         game: Текущее состояние игры.
     """
-    if game.state == "Win":
+    if game.state not in ["Round", "Lose"]:
         for player in game.level.players.values():
             if player.is_alive:
                 player.score += (
@@ -232,7 +233,7 @@ def win(game: GameState) -> None:
     Args:
         game: Текущее состояние игры.
     """
-    game.state = "Win"
+    game.state = "Win" if game.level_num < 7 else "GameCompleted"
     player_score(game)
 
 
@@ -359,12 +360,12 @@ def step(game: GameState, player_id: str, action: str,
                 for curr_id, player in curr_level.players.items():
                     if not player.is_alive:
                         continue
-                    if ((check_collision(
+                    if (check_collision(
                         game.players_old_pos[curr_id],
                         monster_old_pos,
                         player.pos,
                         monster.position
-                    ))
+                    )
                         or (isinstance(monster, Minotaur) and
                             player.pos in monster.jump_area)):
                         player.is_alive = False
@@ -382,23 +383,48 @@ def step(game: GameState, player_id: str, action: str,
             game.turn += 1
 
 
-def change_level(game: GameState) -> None:
-    """Подготавливает игру к следующему уровню или перезапуску текущего уровня.
+def change_level(game: GameState, player_id: str) -> None:
+    """Подготавливает игру к переходу или перезапуску уровня.
 
-    Увеличивает номер уровня, сбрасывает состояние раунда
-    и восстанавливает всех игроков, сохраняя набранные очки.
+    После победы увеличивает номер уровня, после поражения
+    сохраняет текущий номер. Восстанавливает игроков, сбрасывает
+    временные эффекты и сохраняет набранные очки.
 
     Args:
         game: Текущее состояние игры.
+        player_id: ID игрока, запускающего генерацию уровня.
     """
     if game.state == "Win":
         game.level_num += 1
+
     game.state = "Round"
     game.turn = 0
     game.explored.clear()
     game.message = ""
     game.players_old_pos.clear()
 
+    old_player_score = {}
+
     for player in game.level.players.values():
         player.is_alive = True
+        player.torch_active = False
+        player.compass_active = False
         player.score_from_bonuses = 0
+        old_player_score[player.nick] = player.score
+
+    second_nick = next(
+        (player.nick for curr_id, player in game.level.players.items()
+         if curr_id != player_id),
+        None
+    )
+
+    game.level = generate_level(
+        game.level_num,
+        game.rng,
+        game.level.players[player_id],
+        second_nick
+    )
+
+    for player in game.level.players.values():
+        player.score = old_player_score[player.nick]
+
