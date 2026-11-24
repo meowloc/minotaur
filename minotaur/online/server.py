@@ -146,10 +146,13 @@ class GameServer:
     def _leave_lobby(self, session):
         """Убрать игрока из лобби под блокировкой вызывающего метода.
 
+        При выходе из начатой партии сообщить оставшемуся игроку о паузе.
+
         Args:
             session: Сеанс участника лобби.
         """
         lobby = self.lobbies[session.lobby_id]
+        was_started = lobby["state"] == "started"
         if lobby["state"] in ("preparing", "generating", "loading"):
             self._cancel_start(lobby, "Игрок отключился во время подготовки.")
         elif lobby["state"] == "started":
@@ -162,6 +165,9 @@ class GameServer:
             self.sessions[remaining].updates.append(self._snapshot(lobby))
             nick = self.players[session.player_id]
             self._chat_message(lobby, None, f"Игрок {nick} вышел из лобби.")
+            if was_started:
+                self._chat_message(
+                    lobby, None, "Партия на паузе: ждём второго игрока.")
         else:
             del self.lobbies[session.lobby_id]
             del self.histories[session.lobby_id]
