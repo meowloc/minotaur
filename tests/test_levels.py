@@ -323,12 +323,12 @@ def test_player_id_is_dict_key(level, tmp_path):
 @pytest.mark.parametrize('player_id, from_file', [
     ('1', False),
     ('0000001', False),
-    ('00000g', False),
+    ('00000a', False),
     ('٠٠٠٠٠١', False),
-    ('00000g', True),
+    ('00000a', True),
 ])
 def test_invalid_player_id(level, tmp_path, player_id, from_file):
-    """Короче или длиннее шести знаков, символ вне набора 0–9, a–f:
+    """Короче или длиннее шести знаков, не цифра или не цифра 0–9:
     ошибка и в объекте, и в файле."""
     level.players = {player_id: level.players['000001']}
     source = level

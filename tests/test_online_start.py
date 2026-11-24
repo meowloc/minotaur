@@ -76,12 +76,14 @@ def test_start_refused():
 
 
 def test_start_bad_level():
-    """Неверная карта отменяет запуск, сообщение об ошибке генерации тоже."""
+    """Чужие ID отменяют запуск, сообщение об ошибке генерации тоже."""
     server, host, guest = ready_lobby()
     server.lobby_command(host, "start", {})
     server.start_response(host, 1, 1, "prepare", {"ok": True})
     server.start_response(guest, 1, 1, "prepare", {"ok": True})
-    result = server.lobby_command(host, "level", {"start_id": 1, "level": {}})
+    result = server.lobby_command(host, "level", {
+        "start_id": 1, "level": {"players": {"000001": {}, "000002": {}}},
+    })
     assert result["error_code"] == "InvalidLevel"
     assert server.lobbies[1]["state"] == "waiting"
     assert host.start_updates == guest.start_updates == []

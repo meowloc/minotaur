@@ -5,7 +5,6 @@ from threading import Lock
 
 from minotaur.constants import PLAYER_ID_LENGTH
 from minotaur.exceptions import LevelError
-from minotaur.levels import validate_level
 from minotaur.online.protocol import Protocol
 
 
@@ -374,11 +373,10 @@ class GameServer:
                 try:
                     if type(level) is not dict:
                         raise LevelError("Нужны данные карты.")
-                    validate_level(level)
+                    if type(level.get("players")) is not dict:
+                        raise LevelError("Нужен словарь игроков карты.")
                     if set(level["players"]) != set(lobby["players"]):
                         raise LevelError("Игроки карты не совпадают с лобби.")
-                    if level["key"] is None:
-                        raise LevelError("На начальной карте нужен ключ.")
                 except LevelError as error:
                     self._cancel_start(lobby, "Получена некорректная карта.")
                     return {"ok": False, "error": str(error),

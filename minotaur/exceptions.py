@@ -15,10 +15,6 @@ class GenerationError(MinotaurError, ValueError):
     """Ошибка входных данных при генерации лабиринта."""
 
 
-class PlaceError(MinotaurError, ValueError):
-    """Ошибка при размещении объектов на карте."""
-
-
 class PacketError(MinotaurError, ValueError):
     """Ошибка входящего пакета.
 
@@ -35,3 +31,7 @@ class PacketError(MinotaurError, ValueError):
         """
         super().__init__(message)
         self.error_code = error_code
+
+
+class PlaceError(MinotaurError, ValueError):
+    """Ошибка при размещении объектов на карте."""

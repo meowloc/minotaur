@@ -11,18 +11,18 @@ from minotaur.pathfinding import get_bfs_distances, get_shortest_path
 
 
 def is_player_id(value):
-    """Проверить короткий шестнадцатеричный идентификатор игрока.
+    """Проверить, что идентификатор игрока — строка из цифр нужной длины.
 
     Args:
         value: Ключ словаря игроков.
 
     Returns:
-        True для строки из PLAYER_ID_LENGTH символов 0–9 и a–f,
-        например "6a0613", иначе False.
+        ``True``, если это строка ровно из ``PLAYER_ID_LENGTH`` цифр 0–9,
+        например ``"000001"``, иначе ``False``.
     """
     return (type(value) is str
             and len(value) == constants.PLAYER_ID_LENGTH
-            and all(char in "0123456789abcdef" for char in value))
+            and value.isascii() and value.isdigit())
 
 
 def place_exit_and_player(map_matrix, rng=None):
@@ -206,10 +206,10 @@ def generate_level(level_num, rng=None):
 
 
 def validate_level(source):
-    """Проверить Level, данные сетевой карты или JSON-файл перед загрузкой.
+    """Проверить Level после генерации или JSON-файл перед загрузкой.
 
     Args:
-        source: Объект Level, словарь данных или путь к JSON-файлу UTF-8.
+        source: Объект Level или путь к JSON-файлу UTF-8.
 
     Returns:
         Проверенный словарь данных, чтобы не читать файл повторно.
@@ -221,7 +221,7 @@ def validate_level(source):
             карта меньше 5x5, строки разной длины, есть посторонние символы
             или проходы на внешней границе; координаты не являются парой
             целых чисел, лежат в стене или вне внутренней части карты;
-            идентификатор игрока не строка из PLAYER_ID_LENGTH знаков 0–9, a–f;
+            идентификатор игрока не строка из ``PLAYER_ID_LENGTH`` цифр;
             неизвестен тип монстра или бонуса; любые два объекта
             занимают одну клетку; объект недостижим для игрока;
             остаток заморозки не является целым неотрицательным числом
@@ -247,8 +247,6 @@ def validate_level(source):
                 'bonuses': list(source.bonuses.items()),
                 'freeze_turns': source.freeze_turns,
             }
-        elif type(source) is dict:
-            data = source
         else:
             with open(source, encoding='utf-8') as file:
                 data = json.load(file)
