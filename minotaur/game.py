@@ -427,4 +427,3 @@ def change_level(game: GameState, player_id: str) -> None:
 
     for player in game.level.players.values():
         player.score = old_player_score[player.nick]
-
