@@ -155,17 +155,22 @@ def test_death_and_return_to_lobby():
 
 
 def test_old_ack_and_rejected_update():
-    """Старый ACK не открывает ход, отказ от обновления ставит паузу."""
+    """Старый ACK игнорируется; sync повторяет карту после отказа."""
     server, first, second = started_game()
     lobby = server.lobbies[1]
     server.game_command(first, "skip", {})
     server.game_response(first, 1, 1, 1, {"ok": True})
     assert len(lobby["game_waiting"]) == 2
     server.game_response(second, 1, 1, 2, {"ok": False})
-    assert lobby["state"] == "paused"
+    assert not second.finished
+    assert second.player_id in lobby["game_waiting"]
     assert server.game_command(first, "skip", {})["error_code"] == (
-        "GameNotStarted")
-    assert first.chat_updates[-1][1]["message"]["from"] is None
+        "UpdatePending")
+    assert server.game_command(second, "sync", {})["ok"]
+    assert second.game_updates[-1]["update_id"] == 2
+    for member in (first, second):
+        server.game_response(member, 1, 1, 2, {"ok": True})
+    assert server.game_command(second, "skip", {})["ok"]
 
 
 def test_survivor_plays_each_round():
@@ -182,3 +187,63 @@ def test_survivor_plays_each_round():
     server.game_response(second, 1, 1, 2, {"ok": True})
     assert server.game_command(second, "skip", {})["error_code"] == (
         "PlayerDead")
+
+
+def test_chat_pause_on_disconnect():
+    """Выход из партии сообщает о паузе, новый игрок видит её в истории."""
+    server, host, guest = started_game()
+
+    old_id = guest.player_id
+    old_nick = server.players[old_id]
+    guest.unregister()
+    assert server.lobbies[1]["state"] == "paused"
+    cmd, data = host.chat_updates[-1]
+    assert cmd == "recv"
+    assert data["lobby_id"] == 1
+    assert data["message"]["from"] is None
+    assert data["message"]["message"] == (
+        "Партия на паузе: ждём второго игрока.")
+    assert guest.chat_updates == []
+
+    server.register(guest, old_id, old_nick)
+    server.lobby_command(guest, "join", {"lobby_id": 1})
+    assert guest.chat_updates[0][0] == "history"
+    assert guest.chat_updates[0][1]["messages"][-1] == data["message"]
+    assert server.lobbies[1]["state"] == "paused"
+    update = guest.game_updates[-1]
+    server.game_response(host, 1, 1, update["update_id"], {"ok": True})
+    assert server.lobbies[1]["state"] == "paused"
+    server.game_response(guest, 1, 1, update["update_id"], {"ok": True})
+    assert server.lobbies[1]["state"] == "started"
+
+
+def test_replace_player_mid_round():
+    """Замена после хода сохраняет позицию и не даёт ходить второй раз."""
+    server, first, second = started_game()
+    lobby = server.lobbies[1]
+    game = lobby["game"]
+    old_id = first.player_id
+    player = game.level.players[old_id]
+    player.score = 75
+    assert server.game_command(first, "move", {"direction": "down"})["ok"]
+    position = player.pos
+    old_update = lobby["game_update_id"]
+    server.lobby_command(first, "leave", {})
+
+    new = Session(server)
+    server.register(new, "111111", "Alex")
+    assert server.lobby_command(new, "join", {"lobby_id": 1})["ok"]
+    update = new.game_updates[-1]
+    assert update == second.game_updates[-1]
+    assert old_id not in update["level"]["players"]
+    assert update["level"]["players"]["111111"]["pos"] == position
+    assert update["level"]["players"]["111111"]["score"] == 75
+    assert "111111" in game.players_old_pos
+    assert server.game_command(second, "skip", {})["ok"] is False
+    server.game_response(second, 1, 1, old_update, {"ok": True})
+    assert len(lobby["game_waiting"]) == 2
+    for member in (new, second):
+        server.game_response(member, 1, 1, update["update_id"], {"ok": True})
+    assert server.game_command(second, "skip", {})["ok"]
+    assert game.turn == 1
+    assert lobby["next_player_id"] == "111111"

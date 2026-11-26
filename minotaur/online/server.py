@@ -162,8 +162,9 @@ class GameServer:
         was_started = lobby["state"] == "started"
         if lobby["state"] in ("preparing", "generating", "loading"):
             self._cancel_start(lobby, "Игрок отключился во время подготовки.")
-        elif lobby["state"] == "started":
+        elif lobby["state"] in ("started", "paused"):
             lobby["state"] = "paused"
+            lobby["vacant_id"] = session.player_id
             lobby["game_waiting"] = []
             for player_id in lobby["players"]:
                 self.sessions[player_id].game_updates.clear()
@@ -323,22 +324,26 @@ class GameServer:
         """
         lobby["game_update_id"] += 1
         lobby["game_waiting"] = list(lobby["players"])
+        for player_id in lobby["players"]:
+            self._send_game_state(lobby, self.sessions[player_id])
+
+    def _send_game_state(self, lobby, session):
+        """Поставить текущее обновление лобби в очередь участника."""
         data = game_snapshot(lobby["game"], lobby["monsters"],
                              lobby["next_player_id"])
         data["lobby_id"] = lobby["lobby_id"]
         data["start_id"] = lobby["start_id"]
         data["update_id"] = lobby["game_update_id"]
-        for player_id in lobby["players"]:
-            self.sessions[player_id].game_updates.append(data)
+        session.game_updates = [data]
 
     def game_command(self, session, cmd, data):
-        """Выполнить move или skip от игрока, которому принадлежит очередь.
+        """Обработать ход, пропуск или запрос повторной доставки карты.
 
         Args:
             session: Зарегистрированный отправитель.
-            cmd: move или skip.
+            cmd: move, skip или sync.
             data: Для move содержит direction: up, down, left или right.
-                Для skip достаточно пустого словаря.
+                Для skip и sync достаточно пустого словаря.
 
         Returns:
             Словарь с ok. При отказе содержит error и error_code.
@@ -349,6 +354,12 @@ class GameServer:
                 return {"ok": False, "error": "Вы не в лобби.",
                         "error_code": "NotInLobby"}
             lobby = self.lobbies[session.lobby_id]
+            if cmd == "sync":
+                if session.player_id not in lobby["game_waiting"]:
+                    return {"ok": False, "error": "Нет карты для повтора.",
+                            "error_code": "NoPendingUpdate"}
+                self._send_game_state(lobby, session)
+                return {"ok": True}
             if lobby["state"] != "started":
                 return {"ok": False, "error": "Партия не идёт.",
                         "error_code": "GameNotStarted"}
@@ -402,29 +413,29 @@ class GameServer:
             update_id: Номер отправленного состояния игры.
             data: Ответ с ok=True при успешном получении состояния.
 
-        Отказ приостанавливает партию. После двух ACK поражения карта
+        Клиент может запросить sync. После двух ACK поражения карта
         удаляется, готовность сбрасывается, игроки остаются в своём лобби.
         """
         with self.lock:
             if session.lobby_id != lobby_id:
                 return
             lobby = self.lobbies[lobby_id]
-            if (lobby["state"] != "started"
+            if (lobby["state"] not in ("started", "paused")
                     or lobby["start_id"] != start_id
                     or lobby["game_update_id"] != update_id
                     or session.player_id not in lobby["game_waiting"]):
                 return
             if data.get("ok") is not True:
-                lobby["state"] = "paused"
-                lobby["game_waiting"] = []
-                for player_id in lobby["players"]:
-                    member = self.sessions[player_id]
-                    member.game_updates.clear()
-                    member.updates.append(self._snapshot(lobby))
-                self._chat_message(lobby, None,
-                                   "Пауза: игрок не принял состояние игры.")
+                # Клиент остаётся в списке ожидаемых и может запросить sync.
                 return
             lobby["game_waiting"].remove(session.player_id)
+            if not lobby["game_waiting"] and lobby["state"] == "paused":
+                lobby["state"] = "started"
+                for member_id in lobby["players"]:
+                    self.sessions[member_id].updates.append(
+                        self._snapshot(lobby))
+                if lobby["game"].state == "Round":
+                    self._chat_message(lobby, None, "Партия продолжена.")
             if not lobby["game_waiting"] and lobby["game"].state == "Lose":
                 lobby["state"] = "waiting"
                 lobby["level"] = None
@@ -438,6 +449,29 @@ class GameServer:
                         self._snapshot(lobby))
                 self._chat_message(lobby, None,
                                    "Поражение. Можно начать новую партию.")
+
+    def _replace_player(self, lobby, player_id, nick):
+        """Передать вошедшему игровое место и запросить ACK карты у обоих.
+
+        Args:
+            lobby: Приостановленное лобби со свободным местом.
+            player_id: ID вошедшего участника.
+            nick: Его ник после hello.
+        """
+        old_id = lobby["vacant_id"]
+        game = lobby["game"]
+        player = game.level.players.pop(old_id)
+        player.nick = nick
+        game.level.players[player_id] = player
+        if old_id in game.players_old_pos:
+            game.players_old_pos[player_id] = game.players_old_pos.pop(old_id)
+        if old_id in game.escaped:
+            game.escaped[game.escaped.index(old_id)] = player_id
+        if lobby["next_player_id"] == old_id:
+            lobby["next_player_id"] = player_id
+        lobby["vacant_id"] = None
+        lobby["ready"][player_id] = True
+        self._queue_game(lobby)
 
     def _snapshot(self, lobby):
         """Скопировать состояние лобби для отправки после снятия блокировки.
@@ -608,7 +642,7 @@ class GameServer:
                              ready={player_id: False}, state="waiting",
                              start_id=0, confirmed=[], level=None,
                              game=None, monsters=[], next_player_id=None,
-                             game_update_id=0, game_waiting=[])
+                             game_update_id=0, game_waiting=[], vacant_id=None)
                 self.lobbies[lobby_id] = lobby
                 self.histories[lobby_id] = []
             else:
@@ -625,6 +659,8 @@ class GameServer:
                             "error_code": "LobbyFull"}
                 lobby["players"][player_id] = nick
                 lobby["ready"][player_id] = False
+                if lobby["state"] == "paused":
+                    self._replace_player(lobby, player_id, nick)
                 session.chat_updates.append(("history", {
                     "lobby_id": lobby_id,
                     "messages": self.histories[lobby_id].copy(),
@@ -671,7 +707,8 @@ class GameServer:
                         if (lobby is None or session.lobby_id != lobby_id
                                 or lobby["start_id"] != start_id
                                 or lobby["game_update_id"] != update_id
-                                or lobby["state"] != "started"):
+                                or session.player_id not in
+                                lobby["game_waiting"]):
                             protocol.pending.pop(num, None)
                             del game_requests[num]
                     for num, (lobby_id, start_id, cmd) in list(

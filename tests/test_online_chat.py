@@ -96,31 +96,3 @@ def test_chat_repeated_request():
             assert first["data"] == {"ok": True, "message_id": 1}
     assert len(server.histories[1]) == 1
     assert len(session.chat_updates) == 1
-
-
-def test_chat_pause_on_disconnect():
-    """Выход из партии сообщает о паузе, новый игрок видит её в истории."""
-    server = GameServer()
-    host = Session(server)
-    guest = Session(server)
-    server.register(host, "6a0613", "Max")
-    server.register(guest, "5b71af", "Mira")
-    server.lobby_command(host, "create", {})
-    server.lobby_command(guest, "join", {"lobby_id": 1})
-    server.lobbies[1]["state"] = "started"
-
-    guest.unregister()
-    assert server.lobbies[1]["state"] == "paused"
-    cmd, data = host.chat_updates[-1]
-    assert cmd == "recv"
-    assert data["lobby_id"] == 1
-    assert data["message"]["from"] is None
-    assert data["message"]["message"] == (
-        "Партия на паузе: ждём второго игрока.")
-    assert guest.chat_updates == []
-
-    server.register(guest, "5b71af", "Mira")
-    server.lobby_command(guest, "join", {"lobby_id": 1})
-    assert guest.chat_updates[0][0] == "history"
-    assert guest.chat_updates[0][1]["messages"][-1] == data["message"]
-    assert server.lobbies[1]["state"] == "paused"
