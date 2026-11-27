@@ -9,7 +9,7 @@ from minotaur.custom_types import Player, Level, Cell
 from minotaur.exceptions import MovementError, LevelError
 from minotaur.game import (
     GameState, apply_bonus, check_collision, fog, key_actions,
-    lose, move_player, step, win,
+    lose, move_player, step, win, change_level
 )
 from minotaur.monsters import Hunter, Wanderer, Minotaur, Phase, _get_area
 from minotaur.pathfinding import get_bfs_distances
@@ -36,7 +36,7 @@ def game_state():
         },
         monsters=[(constants.HUNTER, Cell(2, 1))],
     )
-    return player_id_1, level
+    return player_id_1, player_id_2, level
 
 
 @pytest.fixture
@@ -121,56 +121,56 @@ def test_move_down(move_check):
 
 def test_move_into_wall(game_state):
     """Нельзя попасть в клетку со стеной."""
-    player_id, level = game_state
+    player_id_1, player_id_2, level = game_state
     with pytest.raises(MovementError):
-        move_player((-1, 0), player_id, level)
-    assert level.players[player_id].pos == Cell(1, 1)
-    assert level.players[player_id].steps == 0
+        move_player((-1, 0), player_id_1, level)
+    assert level.players[player_id_1].pos == Cell(1, 1)
+    assert level.players[player_id_1].steps == 0
 
 
 def test_move_into_another_player(game_state):
     """Нельзя попасть на клетку напарника вне выхода."""
-    player_id, level = game_state
+    player_id_1, player_id_2, level = game_state
     with pytest.raises(MovementError):
-        move_player((0, 1), player_id, level)
-    assert level.players[player_id].pos == Cell(1, 1)
-    assert level.players[player_id].steps == 0
+        move_player((0, 1), player_id_1, level)
+    assert level.players[player_id_1].pos == Cell(1, 1)
+    assert level.players[player_id_1].steps == 0
 
 
 def test_move_into_monster(game_state):
     """Столкновение с монстром убивает игрока."""
-    player_id, level = game_state
-    move_player((1, 0), player_id, level)
-    assert level.players[player_id].is_alive is False
-    assert level.players[player_id].pos == Cell(2, 1)
+    player_id_1, player_id_2, level = game_state
+    move_player((1, 0), player_id_1, level)
+    assert level.players[player_id_1].is_alive is False
+    assert level.players[player_id_1].pos == Cell(2, 1)
 
 
 def test_unknown_bonus(game_state):
     """Неизвестный бонус вызывает ошибку."""
-    player_id, level = game_state
+    player_id_1, player_id_2, level = game_state
     with pytest.raises(LevelError):
-        apply_bonus("K", player_id, level)
+        apply_bonus("K", player_id_1, level)
 
 
 def test_freeze_bonus(game_state):
     """Заморозка устанавливает число ходов."""
-    player_id, level = game_state
-    apply_bonus(constants.FREEZE, player_id, level)
+    player_id_1, player_id_2, level = game_state
+    apply_bonus(constants.FREEZE, player_id_1, level)
     assert level.freeze_turns == constants.BONUS_FREEZE_STEPS
 
 
 def test_torch_bonus(game_state):
     """Факел активируется для конкретного игрока."""
-    player_id, level = game_state
-    apply_bonus(constants.TORCH, player_id, level)
-    assert level.players[player_id].torch_active is True
+    player_id_1, player_id_2, level = game_state
+    apply_bonus(constants.TORCH, player_id_1, level)
+    assert level.players[player_id_1].torch_active is True
 
 
 def test_compass_bonus(game_state):
     """Компас активируется для конкретного игрока."""
-    player_id, level = game_state
-    apply_bonus(constants.COMPASS, player_id, level)
-    assert level.players[player_id].compass_active is True
+    player_id_1, player_id_2, level = game_state
+    apply_bonus(constants.COMPASS, player_id_1, level)
+    assert level.players[player_id_1].compass_active is True
 
 
 def test_fog(round_state):
@@ -255,14 +255,31 @@ def test_check_collision_no_collision():
 def test_win(move_check):
     """Победа начисляет очки игроку и обновляет счёт команды."""
     player_id, level = move_check
-    game = GameState(level=level, level_num=0, rng=random.Random(0), turn=10)
+    game = GameState(level=level, level_num=1, rng=random.Random(0), turn=10)
     level.players[player_id].score_from_bonuses = 20
 
     win(game)
 
-    expected = (20 + constants.SCORE_PER_LEVEL
-                + max(0, constants.SCORE_SPEED_BASE - 10))
+    expected = (level.players[player_id].score_from_bonuses
+                + constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
     assert game.state == "Win"
+    assert game.score == expected
+    assert level.players[player_id].score == expected
+
+
+def test_win_final_lvl(move_check):
+    """Победа на последнем уровне."""
+    player_id, level = move_check
+    game = GameState(level=level, level_num=7, rng=random.Random(0), turn=5)
+    level.players[player_id].score_from_bonuses = 20
+
+    win(game)
+
+    expected = (level.players[player_id].score_from_bonuses
+                + constants.SCORE_PER_LEVEL
+                + max(0, constants.SCORE_SPEED_BASE - game.turn))
+    assert game.state == "GameCompleted"
     assert game.score == expected
     assert level.players[player_id].score == expected
 
@@ -650,3 +667,47 @@ def test_step_minotaur_mark_does_not_kill(round_state):
     assert player.is_alive
     assert minotaur.phase is Phase.AIM
     assert minotaur.turns_left == 1
+
+
+def test_next_level_changing(game_state):
+    """Переход на новый уровень"""
+    player_id_1, player_id_2, level = game_state
+    player_1 = level.players[player_id_1]
+    player_2 = level.players[player_id_2]
+    game = GameState(level=level, level_num=1, rng=random.Random(0), turn=10)
+    level.freeze_turns = 3
+    player_1.score_from_bonuses = 20
+    player_2.is_alive = False
+    player_1.compass_active = True
+    player_1.torch_active = True
+    player_1.is_connected = True
+    player_2.is_connected = True
+    player_2.nick = "Jessica"
+    player_1.nick = "Bella"
+
+    win(game)
+    player_score_1 = player_1.score
+    change_level(game, player_id_2)
+
+    level = game.level
+    player_1 = next(
+        player for player in level.players.values()
+        if player.nick == "Bella"
+    )
+    player_2 = next(
+        player for player in level.players.values()
+        if player.nick == "Jessica"
+    )
+
+    assert player_2.is_alive is True
+    assert game.turn == 0
+    assert game.state == "Round"
+    assert len(game.explored) == 0
+    assert game.level_num == 2
+    assert game.message == ""
+    assert game.players_old_pos == {}
+    assert player_1.score_from_bonuses == 0
+    assert player_1.torch_active is False
+    assert player_1.compass_active is False
+    assert level.freeze_turns == 0
+    assert player_1.score == player_score_1
