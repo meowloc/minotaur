@@ -1,6 +1,7 @@
 """Регистрация игроков, лобби и чат игрового сервера."""
 
 import hashlib
+import traceback
 from threading import Lock
 
 from minotaur.constants import MAX_LEVEL, PLAYER_ID_LENGTH
@@ -796,8 +797,8 @@ class GameServer:
                                        response["data"])
         except (EOFError, OSError):
             pass
-        except Exception as error:
-            print(error, flush=True)
+        except Exception:
+            traceback.print_exc()
         finally:
             session.unregister()
             tube.close()
