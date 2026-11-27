@@ -8,6 +8,7 @@ from minotaur.custom_types import Cell, Level, Player
 from minotaur.game import GameState, check_collision, fog
 from minotaur.game import move_player, step, win
 from minotaur.monsters import Hunter, Wanderer, Minotaur
+from minotaur.pathfinding import get_neighbors
 
 
 @dataclass
@@ -52,6 +53,29 @@ def create_game(data, players, seed):
     for player_id in players:
         fog(game, player_id)
     return game, monsters
+
+
+def choose_first_player(game):
+    """Выбрать первого игрока при запуске карты на двоих.
+
+    Args:
+        game: Игра с расставленными на карте игроками.
+
+    Returns:
+        ID случайного игрока среди тех, кто может шагнуть. Если оба
+        заблокированы, любой из них может начать с пропуска хода.
+    """
+    level = game.level
+    occupied = [player.pos for player in level.players.values()]
+    candidates = []
+    for player_id, player in level.players.items():
+        for cell in get_neighbors(level.maze, player.pos):
+            if cell not in occupied or cell == level.exit:
+                candidates.append(player_id)
+                break
+    if not candidates:
+        candidates = list(level.players)
+    return game.rng.choice(candidates)
 
 
 def play_turn(game, monsters, player_id, action):

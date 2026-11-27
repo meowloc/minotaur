@@ -1,10 +1,11 @@
 """Проверки сетевых ходов с настоящими функциями игровой логики."""
 
+from minotaur.constants import MAX_LEVEL
 from minotaur.custom_types import Cell
 from minotaur.online.server import GameServer, Session
 
 
-def started_game():
+def started_game(second_row="#.....#"):
     """Пройти подготовку лобби и подтвердить начальное game.update."""
     server = GameServer()
     host = Session(server)
@@ -21,7 +22,7 @@ def started_game():
     server.start_response(guest, 1, 1, "prepare", {"ok": True})
     level = {
         "maze": [list(row) for row in [
-            "#######", "#.....#", "#.....#", "#.....#",
+            "#######", "#.....#", second_row, "#.....#",
             "#.....#", "#.....#", "#######",
         ]],
         "players": {"6a0613": {"pos": [1, 1]}, "5b71af": {"pos": [1, 2]}},
@@ -37,6 +38,14 @@ def started_game():
     first = server.sessions[server.lobbies[1]["next_player_id"]]
     second = guest if first is host else host
     return server, first, second
+
+
+def test_first_turn_in_corridor():
+    """Хозяин в тупике, поэтому первым ходит перекрывший проход гость."""
+    server, first, second = started_game(second_row="#####.#")
+    assert first.player_id == "5b71af"
+    assert second.game_updates[-1]["next_player_id"] == first.player_id
+    assert server.game_command(first, "move", {"direction": "right"})["ok"]
 
 
 def test_move_and_skip():
@@ -151,6 +160,7 @@ def test_death_and_return_to_lobby():
     assert lobby["level"] is None
     assert lobby["game"] is None
     assert not any(lobby["ready"].values())
+    assert lobby["last_scores"][first.player_id] == player.score
     assert first.lobby_id == second.lobby_id == 1
 
 
@@ -247,3 +257,48 @@ def test_replace_player_mid_round():
     assert server.game_command(second, "skip", {})["ok"]
     assert game.turn == 1
     assert lobby["next_player_id"] == "111111"
+
+
+def test_seven_levels():
+    """Оба переходят дальше с очками, после последней карты ждут в лобби."""
+    server, first, second = started_game()
+    lobby = server.lobbies[1]
+    host = server.sessions[lobby["host_id"]]
+    level = lobby["level"]
+    for level_num in range(MAX_LEVEL):
+        game = lobby["game"]
+        assert game.level_num == level_num
+        winner = lobby["next_player_id"]
+        partner = second if winner == first.player_id else first
+        game.level.players[partner.player_id].is_alive = False
+        game.level.players[winner].pos = Cell(5, 3)
+        game.level.key = None
+        result = server.game_command(server.sessions[winner], "move",
+                                     {"direction": "right"})
+        assert result["ok"] and game.state == "Win"
+        scores = {pid: p.score for pid, p in game.level.players.items()}
+        start_id = lobby["start_id"]
+        update = lobby["game_update_id"]
+        server.game_response(first, 1, start_id, update, {"ok": True})
+        assert lobby["state"] == "started"
+        server.game_response(second, 1, start_id, update, {"ok": True})
+        if level_num + 1 == MAX_LEVEL:
+            break
+        cmd, request = host.start_updates[-1]
+        assert cmd == "generate" and request["level_num"] == level_num + 1
+        start_id = request["start_id"]
+        assert server.lobby_command(host, "level", {
+            "start_id": start_id, "level": level})["ok"]
+        server.start_response(first, 1, start_id, "level", {"ok": True})
+        assert lobby["state"] == "loading"
+        server.start_response(second, 1, start_id, "level", {"ok": True})
+        for member in (first, second):
+            player = lobby["game"].level.players[member.player_id]
+            assert player.is_alive and player.score == scores[member.player_id]
+            server.game_response(member, 1, start_id, lobby["game_update_id"],
+                                 {"ok": True})
+
+    assert lobby["state"] == "waiting"
+    for member in (first, second):
+        assert member.lobby_id == 1 and not lobby["ready"][member.player_id]
+        assert member.updates[-1]["last_scores"] == scores

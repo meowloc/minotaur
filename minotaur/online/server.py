@@ -3,9 +3,10 @@
 import hashlib
 from threading import Lock
 
-from minotaur.constants import PLAYER_ID_LENGTH
+from minotaur.constants import MAX_LEVEL, PLAYER_ID_LENGTH
 from minotaur.exceptions import LevelError, MovementError
-from minotaur.online.game import create_game, game_snapshot, play_turn
+from minotaur.online.game import choose_first_player, create_game
+from minotaur.online.game import game_snapshot, play_turn
 from minotaur.online.protocol import Protocol
 
 
@@ -160,6 +161,17 @@ class GameServer:
         """
         lobby = self.lobbies[session.lobby_id]
         was_started = lobby["state"] == "started"
+        if (lobby["state"] in ("generating", "loading")
+                and lobby["previous_game"] is not None):
+            (lobby["game"], lobby["monsters"],
+             lobby["level"]) = lobby["previous_game"]
+            lobby["previous_game"] = None
+            lobby["level_num"] = lobby["game"].level_num
+            lobby["confirmed"] = []
+            for pid in lobby["players"]:
+                self.sessions[pid].start_updates.clear()
+            lobby["state"] = "started"
+            was_started = True
         if lobby["state"] in ("preparing", "generating", "loading"):
             self._cancel_start(lobby, "Игрок отключился во время подготовки.")
         elif lobby["state"] in ("started", "paused"):
@@ -198,6 +210,7 @@ class GameServer:
         lobby["state"] = "waiting"
         lobby["level"] = None
         lobby["confirmed"] = []
+        lobby["previous_game"] = None
         lobby["game"] = None
         lobby["monsters"] = []
         lobby["next_player_id"] = None
@@ -208,6 +221,16 @@ class GameServer:
             session.game_updates.clear()
             session.updates.append(self._snapshot(lobby))
         self._chat_message(lobby, None, message)
+
+    def _request_map(self, lobby):
+        """Запросить у хозяина карту текущего этапа под блокировкой сервера."""
+        lobby["state"] = "generating"
+        host = self.sessions[lobby["host_id"]]
+        host.start_updates.append(("generate", {
+            "lobby_id": lobby["lobby_id"], "start_id": lobby["start_id"],
+            "seed": lobby["seed"], "players": lobby["players"].copy(),
+            "level_num": lobby["level_num"],
+        }))
 
     def start_response(self, session, lobby_id, start_id, cmd, data):
         """Учесть ответ на серверный запрос подготовки или получения карты.
@@ -239,19 +262,16 @@ class GameServer:
                 return
             lobby["confirmed"] = []
             if cmd == "prepare":
-                lobby["state"] = "generating"
-                host = self.sessions[lobby["host_id"]]
-                host.start_updates.append(("generate", {
-                    "lobby_id": lobby_id, "start_id": start_id,
-                    "seed": lobby["seed"], "players": lobby["players"].copy(),
-                    "level_num": 0,
-                }))
+                self._request_map(lobby)
             else:
                 lobby["state"] = "started"
-                lobby["next_player_id"] = lobby["game"].rng.choice(
-                    list(lobby["players"]))
+                lobby["previous_game"] = None
+                lobby["next_player_id"] = choose_first_player(lobby["game"])
                 self._queue_game(lobby)
-                self._chat_message(lobby, None, "Партия началась.")
+                message = "Партия началась."
+                if lobby["level_num"]:
+                    message = f"Начался уровень {lobby['level_num'] + 1}."
+                self._chat_message(lobby, None, message)
             for player_id in lobby["players"]:
                 self.sessions[player_id].updates.append(self._snapshot(lobby))
 
@@ -413,8 +433,8 @@ class GameServer:
             update_id: Номер отправленного состояния игры.
             data: Ответ с ok=True при успешном получении состояния.
 
-        Клиент может запросить sync. После двух ACK поражения карта
-        удаляется, готовность сбрасывается, игроки остаются в своём лобби.
+        После двух ACK победы сервер запрашивает у хозяина следующую карту.
+        После последней карты или поражения очки остаются в лобби.
         """
         with self.lock:
             if session.lobby_id != lobby_id:
@@ -436,7 +456,23 @@ class GameServer:
                         self._snapshot(lobby))
                 if lobby["game"].state == "Round":
                     self._chat_message(lobby, None, "Партия продолжена.")
-            if not lobby["game_waiting"] and lobby["game"].state == "Lose":
+            game = lobby["game"]
+            if lobby["game_waiting"] or game.state == "Round":
+                return
+            scores = {pid: p.score for pid, p in game.level.players.items()}
+            if game.state == "Win" and game.level_num + 1 < MAX_LEVEL:
+                lobby["previous_game"] = (game, lobby["monsters"],
+                                          lobby["level"])
+                lobby["level_num"] = game.level_num + 1
+                lobby["scores"] = scores
+                lobby["start_id"] += 1
+                self._request_map(lobby)
+                for pid in lobby["players"]:
+                    self.sessions[pid].updates.append(self._snapshot(lobby))
+            else:
+                lobby["last_scores"] = scores
+                lobby["level_num"] = 0
+                lobby["scores"] = {}
                 lobby["state"] = "waiting"
                 lobby["level"] = None
                 lobby["game"] = None
@@ -447,8 +483,9 @@ class GameServer:
                 for player_id in lobby["players"]:
                     self.sessions[player_id].updates.append(
                         self._snapshot(lobby))
-                self._chat_message(lobby, None,
-                                   "Поражение. Можно начать новую партию.")
+                message = ("Поражение. Можно начать новую партию."
+                           if game.state == "Lose" else "Все уровни пройдены.")
+                self._chat_message(lobby, None, message)
 
     def _replace_player(self, lobby, player_id, nick):
         """Передать вошедшему игровое место и запросить ACK карты у обоих.
@@ -487,6 +524,8 @@ class GameServer:
         result = dict(lobby_id=lobby["lobby_id"], name=lobby["name"],
                       seed=lobby["seed"], host_id=lobby["host_id"],
                       state=lobby["state"], start_id=lobby["start_id"])
+        result["level_num"] = lobby["level_num"]
+        result["last_scores"] = lobby["last_scores"].copy()
         result["players"] = lobby["players"].copy()
         result["ready"] = lobby["ready"].copy()
         result["can_start"] = (
@@ -565,6 +604,10 @@ class GameServer:
                     return {"ok": False, "error": str(error),
                             "error_code": "InvalidLevel"}
                 lobby["level"] = level
+                game.level_num = lobby["level_num"]
+                for pid, player in game.level.players.items():
+                    player.score = lobby["scores"].get(pid, 0)
+                game.score = sum(p.score for p in game.level.players.values())
                 lobby["game"] = game
                 lobby["monsters"] = monsters
                 lobby["state"] = "loading"
@@ -641,6 +684,8 @@ class GameServer:
                              players={player_id: nick}, seed=None,
                              ready={player_id: False}, state="waiting",
                              start_id=0, confirmed=[], level=None,
+                             level_num=0, scores={}, last_scores={},
+                             previous_game=None,
                              game=None, monsters=[], next_player_id=None,
                              game_update_id=0, game_waiting=[], vacant_id=None)
                 self.lobbies[lobby_id] = lobby
